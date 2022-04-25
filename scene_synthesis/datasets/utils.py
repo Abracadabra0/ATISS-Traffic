@@ -36,7 +36,7 @@ def parse_threed_front_scenes(
         unique_room_ids = set()
         # Start parsing the dataset
         print("Loading dataset ", end="")
-        for i, m in enumerate(path_to_scene_layouts[:16]):
+        for i, m in enumerate(path_to_scene_layouts):
             with open(m) as f:
                 data = json.load(f)
                 # Parse the furniture of the scene

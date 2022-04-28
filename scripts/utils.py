@@ -110,7 +110,7 @@ def get_floor_plan(scene, floor_textures):
         vertices=vertices,
         uv=uv,
         faces=faces,
-        material=Material.with_texture_image(texture)
+        material=Material.with_texture_image(os.path.join(texture, 'texture.png'))
     )
 
     tr_floor = trimesh.Trimesh(
@@ -119,7 +119,7 @@ def get_floor_plan(scene, floor_textures):
     tr_floor.visual = trimesh.visual.TextureVisuals(
         uv=np.copy(uv),
         material=trimesh.visual.material.SimpleMaterial(
-            image=Image.open(texture)
+            image=Image.open(os.path.join(texture, 'texture.png'))
         )
     )
 

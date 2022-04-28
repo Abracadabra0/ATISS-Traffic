@@ -35,7 +35,7 @@ class BaseAutoregressiveTransformer(nn.Module):
         self.register_parameter(
             "start_token_embedding",
             nn.Parameter(torch.randn(1, 512))
-        )
+        )  # registered parameters are trainable
 
         # TODO: Add the projection dimensions for the room features in the
         # config!!!

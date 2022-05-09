@@ -8,598 +8,151 @@
 
 import torch
 import torch.nn as nn
-
+from torch.distributions import Categorical, Bernoulli, Normal, LogNormal, VonMises, Independent, MixtureSameFamily
 from fast_transformers.builders import TransformerEncoderBuilder
 from fast_transformers.masking import LengthMask
-
-from .base import FixedPositionalEncoding
-from ..stats_logger import StatsLogger
+from .utils import FixedPositionalEncoding, get_mlp
 
 
-class BaseAutoregressiveTransformer(nn.Module):
-    def __init__(self, input_dims, hidden2output, feature_extractor, config):
+class AutoregressiveTransformer(nn.Module):
+    def __init__(self, feature_extractor):
         super().__init__()
         # Build a transformer encoder
         self.transformer_encoder = TransformerEncoderBuilder.from_kwargs(
-            n_layers=config.get("n_layers", 6),
-            n_heads=config.get("n_heads", 12),
-            query_dimensions=config.get("query_dimensions", 64),
-            value_dimensions=config.get("value_dimensions", 64),
-            feed_forward_dimensions=config.get(
-                "feed_forward_dimensions", 3072
-            ),
+            n_layers=6,
+            n_heads=12,
+            query_dimensions=64,
+            value_dimensions=64,
+            feed_forward_dimensions=2048,
             attention_type="full",
             activation="gelu"
         ).get()
+        self.d_model = 12 * 64
 
-        self.register_parameter(
-            "start_token_embedding",
-            nn.Parameter(torch.randn(1, 512))
-        )  # registered parameters are trainable
-
-        # TODO: Add the projection dimensions for the room features in the
-        # config!!!
+        # extract features from maps
         self.feature_extractor = feature_extractor
-        self.fc_room_f = nn.Linear(
-            self.feature_extractor.feature_size, 512
-        )
 
-        # Positional encoding for each property
-        self.pe_pos_x = FixedPositionalEncoding(proj_dims=64)
-        self.pe_pos_y = FixedPositionalEncoding(proj_dims=64)
-        self.pe_pos_z = FixedPositionalEncoding(proj_dims=64)
+        # Embedding matix for each category
+        self.category_embedding = nn.Embedding(4, 64)
 
-        self.pe_size_x = FixedPositionalEncoding(proj_dims=64)
-        self.pe_size_y = FixedPositionalEncoding(proj_dims=64)
-        self.pe_size_z = FixedPositionalEncoding(proj_dims=64)
+        # Positional encoding for other attributes
+        self.pe_location = FixedPositionalEncoding(proj_dims=64, t_min=1, t_max=64)
+        self.pe_bbox = FixedPositionalEncoding(proj_dims=64, t_min=1/8, t_max=8)
+        self.pe_velocity = FixedPositionalEncoding(proj_dims=64, t_min=1/8, t_max=8)
 
-        self.pe_angle_z = FixedPositionalEncoding(proj_dims=64)
+        # map from object feature to transformer input
+        self.fc_map = get_mlp(512, self.d_model)
+        self.fc_object = get_mlp(512, self.d_model)
 
-        # Embedding matix for property class label.
-        # Compute the number of classes from the input_dims. Note that we
-        # remove 3 to account for the masked bins for the size, position and
-        # angle properties
-        self.input_dims = input_dims
-        self.n_classes = self.input_dims - 3 - 3 - 1
-        self.fc_class = nn.Linear(self.n_classes, 64, bias=False)
+        # embed attribute extractor
+        self.q = nn.Parameter(torch.randn(self.d_model))
 
-        hidden_dims = config.get("hidden_dims", 768)
-        self.fc = nn.Linear(512, hidden_dims)
-        self.hidden2output = hidden2output
+        # used for autoregressive decoding
+        self.n_mixture = 10
+        self.decoder_rnn = [get_mlp(self.d_model, 512),
+                            get_mlp(512 + 64, 512),
+                            get_mlp(512 + 64 * 2, 512),
+                            get_mlp(512 + 64 * 3, 512)]
+        self.prob_category = get_mlp(512, 4)  # categorical distribution
+        self.prob_location = get_mlp(512, self.n_mixture + (2 + 2) * self.n_mixture)  # 2D normal distribution
+        self.prob_wl = get_mlp(512, self.n_mixture + (2 + 2) * self.n_mixture)  # 2D LogNorm distribution
+        self.prob_theta = get_mlp(512, self.n_mixture + 2 * self.n_mixture)  # VonMises distribution
+        self.prob_moving = get_mlp(512, 1)
+        self.prob_s = get_mlp(512, self.n_mixture + 2 * self.n_mixture)  # LogNorm distribution
+        self.prob_omega = get_mlp(512, self.n_mixture + 2 * self.n_mixture)  # VonMises distribution
 
-    def start_symbol(self, device="cpu"):
-        start_class = torch.zeros(1, 1, self.n_classes, device=device)
-        start_class[0, 0, -2] = 1
-        return {
-            "class_labels": start_class,
-            "translations": torch.zeros(1, 1, 3, device=device),
-            "sizes": torch.zeros(1, 1, 3, device=device),
-            "angles": torch.zeros(1, 1, 1, device=device)
-        }
+    def forward(self, samples, lengths, gt):
+        # Unpack the samples
+        category = samples["category"]  # (B, L)
+        location = samples["location"]
+        bbox = samples["bbox"]
+        velocity = samples["velocity"]
+        maps = samples["map"]
+        B, L, *_ = category.shape
 
-        return boxes
+        # extract features from map
+        map_f = self.feature_extractor(maps)
+        map_f = self.fc_map(map_f)  # (B, d_model)
 
-    def end_symbol(self, device="cpu"):
-        end_class = torch.zeros(1, 1, self.n_classes, device=device)
-        end_class[0, 0, -1] = 1
-        return {
-            "class_labels": end_class,
-            "translations": torch.zeros(1, 1, 3, device=device),
-            "sizes": torch.zeros(1, 1, 3, device=device),
-            "angles": torch.zeros(1, 1, 1, device=device)
-        }
+        # embed category
+        category_f = self.category_embedding(category)
+        # positional encoding for location
+        location_f = self.pe_location(location)
+        # positional encoding for bounding box
+        bbox_f = self.pe_bbox(bbox)
+        # positional encoding for velocity
+        velocity_f = self.pe_velocity(velocity)
+        object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, L, 512)
+        object_f = self.fc_object(torch.flatten(object_f, start_dim=0, end_dim=1)).reshape(B, L, self.d_model)  # (B, L, d_model)
 
-    def start_symbol_features(self, B, room_mask):
-        room_layout_f = self.fc_room_f(self.feature_extractor(room_mask))
-        return room_layout_f[:, None, :]
-
-    def forward(self, sample_params):
-        raise NotImplementedError()
-
-    def autoregressive_decode(self, boxes, room_mask):
-        raise NotImplementedError()
-
-    @torch.no_grad()
-    def generate_boxes(self, room_mask, max_boxes=32, device="cpu"):
-        raise NotImplementedError()
-
-
-class AutoregressiveTransformer(BaseAutoregressiveTransformer):
-    def __init__(self, input_dims, hidden2output, feature_extractor, config):
-        super().__init__(input_dims, hidden2output, feature_extractor, config)
-        # Embedding to be used for the empty/mask token
-        self.register_parameter(
-            "empty_token_embedding", nn.Parameter(torch.randn(1, 512))
-        )
-
-    def forward(self, sample_params):
-        # Unpack the sample_params
-        class_labels = sample_params["class_labels"]
-        translations = sample_params["translations"]
-        sizes = sample_params["sizes"]
-        angles = sample_params["angles"]
-        room_layout = sample_params["room_layout"]
-        B, _, _ = class_labels.shape
-
-        # Apply the positional embeddings only on bboxes that are not the start
-        # token
-        class_f = self.fc_class(class_labels)
-        # Apply the positional embedding along each dimension of the position
-        # property
-        pos_f_x = self.pe_pos_x(translations[:, :, 0:1])
-        pos_f_y = self.pe_pos_x(translations[:, :, 1:2])
-        pos_f_z = self.pe_pos_x(translations[:, :, 2:3])
-        pos_f = torch.cat([pos_f_x, pos_f_y, pos_f_z], dim=-1)
-
-        size_f_x = self.pe_size_x(sizes[:, :, 0:1])
-        size_f_y = self.pe_size_x(sizes[:, :, 1:2])
-        size_f_z = self.pe_size_x(sizes[:, :, 2:3])
-        size_f = torch.cat([size_f_x, size_f_y, size_f_z], dim=-1)
-
-        angle_f = self.pe_angle_z(angles)
-        X = torch.cat([class_f, pos_f, size_f, angle_f], dim=-1)
-
-        start_symbol_f = self.start_symbol_features(B, room_layout)
-        # Concatenate with the mask embedding for the start token
-        X = torch.cat([
-            start_symbol_f, self.empty_token_embedding.expand(B, -1, -1), X
-        ], dim=1)
-        X = self.fc(X)
+        input_f = torch.cat([map_f[:, None, :],
+                             self.q.expand(B, 1, self.d_model),
+                             object_f],
+                            dim=1)  # (B, L + 2, d_model)
 
         # Compute the features using causal masking
-        lengths = LengthMask(
-            sample_params["lengths"]+2,
-            max_len=X.shape[1]
-        )
-        F = self.transformer_encoder(X, length_mask=lengths)
-        return self.hidden2output(F[:, 1:2], sample_params)
+        length_mask = LengthMask(lengths + 2)
+        output_f = self.transformer_encoder(input_f, length_mask=length_mask)
+        # take only the encoded q token
+        output_f = output_f[:, 1, :]  # (B, d_model)
+
+        # predict category
+        f = self.decoder_rnn[0](output_f)  # (B, 512)
+        prob_category = Categorical(logits=self.prob_category(f))
+
+        # predict location
+        gt_category = gt['category']  # (B,)
+        gt_category_f = self.category_embedding(gt_category)
+        f = self.decoder_rnn[1](torch.cat([f, gt_category_f], dim=-1))
+        prob_location = self.prob_location(f)
+        mixture_distribution = Categorical(logits=prob_location[:, :self.n_mixture])
+        prob_location = prob_location[:, self.n_mixture:].reshape(B, self.n_mixture, 4)  # (B, n_mixture, 4)
+        prob_location = Normal(prob_location[..., :2], torch.exp(prob_location[..., 2:]))  # batch_shape = (B, n_mixture, 2)
+        prob_location = Independent(prob_location, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture), event_shape = 2
+        prob_location = MixtureSameFamily(mixture_distribution, prob_location)  # batch_shape = B, event_shape = 2
+
+        # predict wl and theta
+        gt_location = gt['location']  # (B, 2)
+        gt_location_f = self.pe_location(gt_location)  # (B, 64 * 2)
+        f = self.decoder_rnn[2](torch.cat([f, gt_location_f], dim=-1))
+        prob_wl = self.prob_wl(f)
+        mixture_distribution = Categorical(logits=prob_wl[:, :self.n_mixture])
+        prob_wl = prob_wl[:, self.n_mixture:].reshape(B, self.n_mixture, 4)
+        prob_wl = LogNormal(prob_wl[..., :2], torch.exp(prob_wl[..., 2:]))
+        prob_wl = Independent(prob_wl, reinterpreted_batch_ndims=1)
+        prob_wl = MixtureSameFamily(mixture_distribution, prob_wl)
+
+        prob_theta = self.prob_theta(f)  # (B, n_mixture + 2 * n_mixture)
+        mixture_distribution = Categorical(logits=prob_theta[:, :self.n_mixture])
+        prob_theta = prob_theta[:, self.n_mixture:].reshape(B, self.n_mixture, 2)  # (B, n_mixture, 2)
+        prob_theta = VonMises(prob_theta[..., 0], torch.exp(prob_theta[..., 1]))  # batch_shape = (B, n_mixture), event_shape = 1
+        prob_theta = MixtureSameFamily(mixture_distribution, prob_theta)  # batch_shape = B, event_shape = 1
+
+        # predict s and omega
+        gt_bbox = gt['bbox']
+        gt_bbox_f = self.pe_bbox(gt_bbox)  # (B, 64 * 3)
+        f = self.decoder_rnn[3](torch.cat([f, gt_bbox_f], dim=-1))
+        # predict the probability of s != 0
+        prob_moving = self.prob_moving(f).flatten()
+        prob_moving = Bernoulli(logits=prob_moving)
+
+        prob_s = self.prob_s(f)
+        mixture_distribution = Categorical(logits=prob_s[:, :self.n_mixture])
+        prob_s = prob_s[:, self.n_mixture:].reshape(B, self.n_mixture, 2)
+        prob_s = LogNormal(prob_s[..., 0], torch.exp(prob_s[..., 1]))
+        prob_s = MixtureSameFamily(mixture_distribution, prob_s)
+
+        prob_omega = self.prob_omega(f)
+        mixture_distribution = Categorical(logits=prob_omega[:, :self.n_mixture])
+        prob_omega = prob_omega[:, self.n_mixture:].reshape(B, self.n_mixture, 2)
+        prob_omega = VonMises(prob_omega[..., 0], torch.exp(prob_omega[..., 1]))
+        prob_omega = MixtureSameFamily(mixture_distribution, prob_omega)
+
+        return {'category': prob_category,
+                'location': prob_location,
+                'bbox': (prob_wl, prob_theta),
+                'velocity': (prob_s, prob_omega, prob_moving)}
 
-    def _encode(self, boxes, room_mask):
-        class_labels = boxes["class_labels"]
-        translations = boxes["translations"]
-        sizes = boxes["sizes"]
-        angles = boxes["angles"]
-        B, _, _ = class_labels.shape
-
-        if class_labels.shape[1] == 1:
-            start_symbol_f = self.start_symbol_features(B, room_mask)
-            X = torch.cat([
-                start_symbol_f, self.empty_token_embedding.expand(B, -1, -1)
-            ], dim=1)
-        else:
-            # Apply the positional embeddings only on bboxes that are not the
-            # start token
-            class_f = self.fc_class(class_labels[:, 1:])
-            # Apply the positional embedding along each dimension of the
-            # position property
-            pos_f_x = self.pe_pos_x(translations[:, 1:, 0:1])
-            pos_f_y = self.pe_pos_x(translations[:, 1:, 1:2])
-            pos_f_z = self.pe_pos_x(translations[:, 1:, 2:3])
-            pos_f = torch.cat([pos_f_x, pos_f_y, pos_f_z], dim=-1)
-
-            size_f_x = self.pe_size_x(sizes[:, 1:, 0:1])
-            size_f_y = self.pe_size_x(sizes[:, 1:, 1:2])
-            size_f_z = self.pe_size_x(sizes[:, 1:, 2:3])
-            size_f = torch.cat([size_f_x, size_f_y, size_f_z], dim=-1)
-
-            angle_f = self.pe_angle_z(angles[:, 1:])
-            X = torch.cat([class_f, pos_f, size_f, angle_f], dim=-1)
-
-            start_symbol_f = self.start_symbol_features(B, room_mask)
-            # Concatenate with the mask embedding for the start token
-            X = torch.cat([
-                start_symbol_f, self.empty_token_embedding.expand(B, -1, -1), X
-            ], dim=1)
-        X = self.fc(X)
-        F = self.transformer_encoder(X, length_mask=None)[:, 1:2]
-
-        return F
-
-    def autoregressive_decode(self, boxes, room_mask):
-        class_labels = boxes["class_labels"]
-
-        # Compute the features using the transformer
-        F = self._encode(boxes, room_mask)
-        # Sample the class label for the next bbbox
-        class_labels = self.hidden2output.sample_class_labels(F)
-        # Sample the translations
-        translations = self.hidden2output.sample_translations(F, class_labels)
-        # Sample the angles
-        angles = self.hidden2output.sample_angles(
-            F, class_labels, translations
-        )
-        # Sample the sizes
-        sizes = self.hidden2output.sample_sizes(
-            F, class_labels, translations, angles
-        )
-
-        return {
-            "class_labels": class_labels,
-            "translations": translations,
-            "sizes": sizes,
-            "angles": angles
-        }
-
-    @torch.no_grad()
-    def generate_boxes(self, room_mask, max_boxes=32, device="cpu"):
-        boxes = self.start_symbol(device)
-        for i in range(max_boxes):
-            box = self.autoregressive_decode(boxes, room_mask=room_mask)
-
-            for k in box.keys():
-                boxes[k] = torch.cat([boxes[k], box[k]], dim=1)
-
-            # Check if we have the end symbol
-            if box["class_labels"][0, 0, -1] == 1:
-                break
-
-        return {
-            "class_labels": boxes["class_labels"].cpu(),
-            "translations": boxes["translations"].cpu(),
-            "sizes": boxes["sizes"].cpu(),
-            "angles": boxes["angles"].cpu()
-        }
-
-    def autoregressive_decode_with_class_label(
-        self, boxes, room_mask, class_label
-    ):
-        class_labels = boxes["class_labels"]
-        B, _, C = class_labels.shape
-
-        # Make sure that everything has the correct size
-        assert len(class_label.shape) == 3
-        assert class_label.shape[0] == B
-        assert class_label.shape[-1] == C
-
-        # Compute the features using the transformer
-        F = self._encode(boxes, room_mask)
-
-        # Sample the translations conditioned on the query_class_label
-        translations = self.hidden2output.sample_translations(F, class_label)
-        # Sample the angles
-        angles = self.hidden2output.sample_angles(
-            F, class_label, translations
-        )
-        # Sample the sizes
-        sizes = self.hidden2output.sample_sizes(
-            F, class_label, translations, angles
-        )
-
-        return {
-            "class_labels": class_label,
-            "translations": translations,
-            "sizes": sizes,
-            "angles": angles
-        }
-
-    @torch.no_grad()
-    def add_object(self, room_mask, class_label, boxes=None, device="cpu"):
-        boxes = dict(boxes.items())
-
-        # Make sure that the provided class_label will have the correct format
-        if isinstance(class_label, int):
-            one_hot = torch.eye(self.n_classes)
-            class_label = one_hot[class_label][None, None]
-        elif not torch.is_tensor(class_label):
-            class_label = torch.from_numpy(class_label)
-
-        # Make sure that the class label the correct size,
-        # namely (batch_size, 1, n_classes)
-        assert class_label.shape == (1, 1, self.n_classes)
-
-        # Create the initial input to the transformer, namely the start token
-        start_box = self.start_symbol(device)
-        for k in start_box.keys():
-            boxes[k] = torch.cat([start_box[k], boxes[k]], dim=1)
-
-        # Based on the query class label sample the location of the new object
-        box = self.autoregressive_decode_with_class_label(
-            boxes=boxes,
-            room_mask=room_mask,
-            class_label=class_label
-        )
-
-        for k in box.keys():
-            boxes[k] = torch.cat([boxes[k], box[k]], dim=1)
-
-        # Creat a box for the end token and update the boxes dictionary
-        end_box = self.end_symbol(device)
-        for k in end_box.keys():
-            boxes[k] = torch.cat([boxes[k], end_box[k]], dim=1)
-
-        return {
-            "class_labels": boxes["class_labels"],
-            "translations": boxes["translations"],
-            "sizes": boxes["sizes"],
-            "angles": boxes["angles"]
-        }
-
-    @torch.no_grad()
-    def complete_scene(
-        self,
-        boxes,
-        room_mask,
-        max_boxes=100,
-        device="cpu"
-    ):
-        boxes = dict(boxes.items())
-
-        # Create the initial input to the transformer, namely the start token
-        start_box = self.start_symbol(device)
-        # Add the start box token in the beginning
-        for k in start_box.keys():
-            boxes[k] = torch.cat([start_box[k], boxes[k]], dim=1)
-
-        for i in range(max_boxes):
-            box = self.autoregressive_decode(boxes, room_mask=room_mask)
-
-            for k in box.keys():
-                boxes[k] = torch.cat([boxes[k], box[k]], dim=1)
-
-            # Check if we have the end symbol
-            if box["class_labels"][0, 0, -1] == 1:
-                break
-
-        return {
-            "class_labels": boxes["class_labels"],
-            "translations": boxes["translations"],
-            "sizes": boxes["sizes"],
-            "angles": boxes["angles"]
-        }
-
-    def autoregressive_decode_with_class_label_and_translation(
-        self,
-        boxes,
-        room_mask,
-        class_label,
-        translation
-    ):
-        class_labels = boxes["class_labels"]
-        B, _, C = class_labels.shape
-
-        # Make sure that everything has the correct size
-        assert len(class_label.shape) == 3
-        assert class_label.shape[0] == B
-        assert class_label.shape[-1] == C
-
-        # Compute the features using the transformer
-        F = self._encode(boxes, room_mask)
-
-        # Sample the angles
-        angles = self.hidden2output.sample_angles(F, class_label, translation)
-        # Sample the sizes
-        sizes = self.hidden2output.sample_sizes(
-            F, class_label, translation, angles
-        )
-
-        return {
-            "class_labels": class_label,
-            "translations": translation,
-            "sizes": sizes,
-            "angles": angles
-        }
-
-    @torch.no_grad()
-    def add_object_with_class_and_translation(
-        self,
-        boxes,
-        room_mask,
-        class_label,
-        translation,
-        device="cpu"
-    ):
-        boxes = dict(boxes.items())
-
-        # Make sure that the provided class_label will have the correct format
-        if isinstance(class_label, int):
-            one_hot = torch.eye(self.n_classes)
-            class_label = one_hot[class_label][None, None]
-        elif not torch.is_tensor(class_label):
-            class_label = torch.from_numpy(class_label)
-
-        # Make sure that the class label the correct size,
-        # namely (batch_size, 1, n_classes)
-        assert class_label.shape == (1, 1, self.n_classes)
-
-
-        # Create the initial input to the transformer, namely the start token
-        start_box = self.start_symbol(device)
-        for k in start_box.keys():
-            boxes[k] = torch.cat([start_box[k], boxes[k]], dim=1)
-
-        # Based on the query class label sample the location of the new object
-        box = self.autoregressive_decode_with_class_label_and_translation(
-            boxes=boxes,
-            class_label=class_label,
-            translation=translation,
-            room_mask=room_mask
-        )
-
-        for k in box.keys():
-            boxes[k] = torch.cat([boxes[k], box[k]], dim=1)
-
-        # Creat a box for the end token and update the boxes dictionary
-        end_box = self.end_symbol(device)
-        for k in end_box.keys():
-            boxes[k] = torch.cat([boxes[k], end_box[k]], dim=1)
-
-        return {
-            "class_labels": boxes["class_labels"],
-            "translations": boxes["translations"],
-            "sizes": boxes["sizes"],
-            "angles": boxes["angles"]
-        }
-
-    @torch.no_grad()
-    def distribution_classes(self, boxes, room_mask, device="cpu"):
-        # Shallow copy the input dictionary
-        boxes = dict(boxes.items())
-        # Create the initial input to the transformer, namely the start token
-        start_box = self.start_symbol(device)
-        # Add the start box token in the beginning
-        for k in start_box.keys():
-            boxes[k] = torch.cat([start_box[k], boxes[k]], dim=1)
-
-        # Compute the features using the transformer
-        F = self._encode(boxes, room_mask)
-        return self.hidden2output.pred_class_probs(F)
-
-    @torch.no_grad()
-    def distribution_translations(
-        self,
-        boxes,
-        room_mask, 
-        class_label,
-        device="cpu"
-    ):
-        # Shallow copy the input dictionary
-        boxes = dict(boxes.items())
-
-        # Make sure that the provided class_label will have the correct format
-        if isinstance(class_label, int):
-            one_hot = torch.eye(self.n_classes)
-            class_label = one_hot[class_label][None, None]
-        elif not torch.is_tensor(class_label):
-            class_label = torch.from_numpy(class_label)
-
-        # Make sure that the class label the correct size,
-        # namely (batch_size, 1, n_classes)
-        assert class_label.shape == (1, 1, self.n_classes)
-
-        # Create the initial input to the transformer, namely the start token
-        start_box = self.start_symbol(device)
-        # Concatenate to the given input (that's why we shallow copy in the
-        # beginning of this method
-        for k in start_box.keys():
-            boxes[k] = torch.cat([start_box[k], boxes[k]], dim=1)
-
-        # Compute the features using the transformer
-        F = self._encode(boxes, room_mask)
-
-        # Get the dmll params for the translations
-        return self.hidden2output.pred_dmll_params_translation(
-            F, class_label
-        )
-
-
-class AutoregressiveTransformerPE(AutoregressiveTransformer):
-    def __init__(self, input_dims, hidden2output, feature_extractor, config):
-        super().__init__(input_dims, hidden2output, feature_extractor, config)
-        # Embedding to be used for the empty/mask token
-        self.register_parameter(
-            "empty_token_embedding", nn.Parameter(torch.randn(1, 512))
-        )
-
-        # Positional embedding for the ordering
-        max_seq_length = 32
-        self.register_parameter(
-            "positional_embedding",
-            nn.Parameter(torch.randn(max_seq_length, 32))
-        )
-
-        # Positional encoding for each property
-        self.pe_pos_x = FixedPositionalEncoding(proj_dims=60)
-        self.pe_pos_y = FixedPositionalEncoding(proj_dims=60)
-        self.pe_pos_z = FixedPositionalEncoding(proj_dims=60)
-
-        self.pe_size_x = FixedPositionalEncoding(proj_dims=60)
-        self.pe_size_y = FixedPositionalEncoding(proj_dims=60)
-        self.pe_size_z = FixedPositionalEncoding(proj_dims=64)
-
-        self.pe_angle_z = FixedPositionalEncoding(proj_dims=60)
-
-        # Embedding matix for property class label.
-        # Compute the number of classes from the input_dims. Note that we
-        # remove 3 to account for the masked bins for the size, position and
-        # angle properties
-        self.input_dims = input_dims
-        self.n_classes = self.input_dims - 3 - 3 - 1
-        self.fc_class = nn.Linear(self.n_classes, 60, bias=False)
-
-    def forward(self, sample_params):
-        # Unpack the sample_params
-        class_labels = sample_params["class_labels"]
-        translations = sample_params["translations"]
-        sizes = sample_params["sizes"]
-        angles = sample_params["angles"]
-        room_layout = sample_params["room_layout"]
-        B, L, _ = class_labels.shape
-
-        # Apply the positional embeddings only on bboxes that are not the start
-        # token
-        class_f = self.fc_class(class_labels)
-        # Apply the positional embedding along each dimension of the position
-        # property
-        pos_f_x = self.pe_pos_x(translations[:, :, 0:1])
-        pos_f_y = self.pe_pos_x(translations[:, :, 1:2])
-        pos_f_z = self.pe_pos_x(translations[:, :, 2:3])
-        pos_f = torch.cat([pos_f_x, pos_f_y, pos_f_z], dim=-1)
-
-        size_f_x = self.pe_size_x(sizes[:, :, 0:1])
-        size_f_y = self.pe_size_x(sizes[:, :, 1:2])
-        size_f_z = self.pe_size_x(sizes[:, :, 2:3])
-        size_f = torch.cat([size_f_x, size_f_y, size_f_z], dim=-1)
-
-        angle_f = self.pe_angle_z(angles)
-        pe = self.positional_embedding[None, :L].expand(B, -1, -1)
-        X = torch.cat([class_f, pos_f, size_f, angle_f, pe], dim=-1)
-
-        start_symbol_f = self.start_symbol_features(B, room_layout)
-        # Concatenate with the mask embedding for the start token
-        X = torch.cat([
-            start_symbol_f, self.empty_token_embedding.expand(B, -1, -1), X
-        ], dim=1)
-        X = self.fc(X)
-
-        # Compute the features using causal masking
-        lengths = LengthMask(
-            sample_params["lengths"]+2,
-            max_len=X.shape[1]
-        )
-        F = self.transformer_encoder(X, length_mask=lengths)
-        return self.hidden2output(F[:, 1:2], sample_params)
-
-    def _encode(self, boxes, room_mask):
-        class_labels = boxes["class_labels"]
-        translations = boxes["translations"]
-        sizes = boxes["sizes"]
-        angles = boxes["angles"]
-        B, L, _ = class_labels.shape
-
-        if class_labels.shape[1] == 1:
-            start_symbol_f = self.start_symbol_features(B, room_mask)
-            X = torch.cat([
-                start_symbol_f, self.empty_token_embedding.expand(B, -1, -1)
-            ], dim=1)
-        else:
-            # Apply the positional embeddings only on bboxes that are not the
-            # start token
-            class_f = self.fc_class(class_labels[:, 1:])
-            # Apply the positional embedding along each dimension of the
-            # position property
-            pos_f_x = self.pe_pos_x(translations[:, 1:, 0:1])
-            pos_f_y = self.pe_pos_x(translations[:, 1:, 1:2])
-            pos_f_z = self.pe_pos_x(translations[:, 1:, 2:3])
-            pos_f = torch.cat([pos_f_x, pos_f_y, pos_f_z], dim=-1)
-
-            size_f_x = self.pe_size_x(sizes[:, 1:, 0:1])
-            size_f_y = self.pe_size_x(sizes[:, 1:, 1:2])
-            size_f_z = self.pe_size_x(sizes[:, 1:, 2:3])
-            size_f = torch.cat([size_f_x, size_f_y, size_f_z], dim=-1)
-
-            angle_f = self.pe_angle_z(angles[:, 1:])
-            pe = self.positional_embedding[None, 1:L].expand(B, -1, -1)
-            X = torch.cat([class_f, pos_f, size_f, angle_f, pe], dim=-1)
-
-            start_symbol_f = self.start_symbol_features(B, room_mask)
-            # Concatenate with the mask embedding for the start token
-            X = torch.cat([
-                start_symbol_f, self.empty_token_embedding.expand(B, -1, -1), X
-            ], dim=1)
-        X = self.fc(X)
-        F = self.transformer_encoder(X, length_mask=None)[:, 1:2]
-
-        return F
 
 
 def train_on_batch(model, optimizer, sample_params, config):

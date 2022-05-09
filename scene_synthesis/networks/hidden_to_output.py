@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from .bbox_output import AutoregressiveBBoxOutput
-from .base import FixedPositionalEncoding, sample_from_dmll
+from .utils import FixedPositionalEncoding, sample_from_dmll
 
 
 class Hidden2Output(nn.Module):
@@ -50,16 +50,16 @@ class Hidden2Output(nn.Module):
         raise NotImplementedError()
 
 
-class AutoregressiveDMLL(Hidden2Output):
+class AutoregressiveDecoder(nn.Module):
     def __init__(
         self,
-        hidden_size,
-        n_classes,
-        n_mixtures,
-        bbox_output,
-        with_extra_fc=False
+        n_mixture,
+        d_model
     ):
-        super().__init__(hidden_size, n_classes, with_extra_fc)
+        super().__init__()
+        self.n_mixture = n_mixture
+        self.d_model = d_model
+
 
         if not isinstance(n_mixtures, list):
             n_mixtures = [n_mixtures]*7

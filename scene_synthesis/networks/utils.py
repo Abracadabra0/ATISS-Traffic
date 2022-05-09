@@ -1,28 +1,34 @@
-# 
-# Copyright (C) 2021 NVIDIA Corporation.  All rights reserved.
-# Licensed under the NVIDIA Source Code License.
-# See LICENSE at https://github.com/nv-tlabs/ATISS.
-# Authors: Despoina Paschalidou, Amlan Kar, Maria Shugrina, Karsten Kreis,
-#          Andreas Geiger, Sanja Fidler
-# 
+from typing import Any
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 
 class FixedPositionalEncoding(nn.Module):
-    def __init__(self, proj_dims, val=0.1):
+    def __init__(self, proj_dims, t_min=1, t_max=64):
         super().__init__()
-        ll = proj_dims//2
-        exb = 2 * torch.linspace(0, ll-1, ll) / proj_dims
-        self.sigma = 1.0 / torch.pow(val, exb).view(1, -1)
-        self.sigma = 2 * torch.pi * self.sigma
+        ll = proj_dims // 2
+        exp = torch.linspace(np.log2(t_max), np.log2(t_min), ll)
+        exp = 2 ** exp
+        self.sigma = 2 * np.pi / exp
 
     def forward(self, x):
         return torch.cat([
-            torch.sin(x * self.sigma.to(x.device)),
-            torch.cos(x * self.sigma.to(x.device))
-        ], dim=-1)
+            torch.sin(x[..., None] * self.sigma),
+            torch.cos(x[..., None] * self.sigma)
+        ], dim=-1).flatten(start_dim=-2)
+
+
+def get_mlp(hidden_size, output_size):
+    mlp_layers = [
+        nn.Linear(hidden_size, 2 * hidden_size),
+        nn.ReLU(),
+        nn.Linear(2 * hidden_size, hidden_size),
+        nn.ReLU(),
+        nn.Linear(hidden_size, output_size)
+    ]
+    return nn.Sequential(*mlp_layers)
 
 
 def sample_from_dmll(pred, num_classes=256):

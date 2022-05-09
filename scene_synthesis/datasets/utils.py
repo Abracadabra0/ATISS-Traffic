@@ -1,5 +1,6 @@
 import numpy as np
-
+import torch
+from torch.nn.utils.rnn import pad_sequence
 
 def crop_image(image: np.array,
                x_px: int,
@@ -28,3 +29,26 @@ def cartesian_to_polar(vector: np.array) -> np.array:
     theta = np.arctan(vector[1] / vector[0]) + (vector[0] < 0) * np.pi
     theta = theta + (theta < 0) * np.pi * 2
     return np.array([rho, theta])
+
+
+def collate_train(samples):
+    lengths = [len(sample['category']) for sample in samples]
+    keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
+    collated = {}
+    gt = {}
+    for k in ['category', 'location', 'bbox', 'velocity']:
+        collated[k] = pad_sequence([sample[k][:l] for sample, l in zip(samples, keep_lengths)], batch_first=True)
+        gt_list = []
+        for sample, l in zip(samples, keep_lengths):
+            try:
+                gt_list.append(sample[k][l])
+            except IndexError:
+                if k == 'category':
+                    gt_list.append(torch.tensor(0))
+                elif k == 'bbox':
+                    gt_list.append(torch.tensor([0., 0., 0.]))
+                else:
+                    gt_list.append(torch.tensor([0., 0.]))
+        gt[k] = torch.stack(gt_list)
+    collated['map'] = torch.stack([sample['map'] for sample in samples])
+    return collated, torch.tensor(keep_lengths), gt

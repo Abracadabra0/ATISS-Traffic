@@ -6,7 +6,7 @@ from pyquaternion import Quaternion
 from nuscenes.map_expansion.map_api import NuScenesMap
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.geometry_utils import BoxVisibility
-from utils import get_homogeneous_matrix, cartesian_to_polar
+from .utils import get_homogeneous_matrix, cartesian_to_polar
 
 
 class NuScenesDataset(Dataset):
@@ -19,8 +19,7 @@ class NuScenesDataset(Dataset):
                    'stop_line',
                    'carpark_area',
                    'road_divider',
-                   'lane_divider',
-                   'traffic_light']
+                   'lane_divider']
     Q = 0
     PEDESTRIAN = 1
     BICYCLIST = 2
@@ -115,8 +114,23 @@ class NuScenesDataset(Dataset):
 
             os.chdir('..')
 
+    def __init__(self, dataroot: str, train=False):
+        self.dataroot = dataroot
+        self.samples = os.listdir(dataroot)
+        self.train = train
 
-if __name__ == '__main__':
-    NuScenesDataset.preprocess('/media/yifanlin/My Passport/data/nuScene',
-                               'v1.0-mini',
-                               '/media/yifanlin/My Passport/data/nuScene-processed')
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        path = os.path.join(self.dataroot, self.samples[idx])
+        data = {}
+        for filename in os.listdir(path):
+            datapath = os.path.join(path, filename)
+            data[filename] = torch.load(datapath)
+        if self.train:
+            # randomly permute objects
+            perm = torch.randperm(data['category'].shape[0])
+            for k in ['category', 'location', 'bbox', 'velocity']:
+                data[k] = data[k][perm]
+        return data

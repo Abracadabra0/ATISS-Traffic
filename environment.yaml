@@ -1,12 +1,5 @@
 name: atiss
 channels:
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge/
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch/
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free/
   - defaults
 dependencies:
   - _libgcc_mutex=0.1=conda_forge
@@ -208,4 +201,3 @@ dependencies:
     - webencodings==0.5.1
     - widgetsnbextension==3.6.0
     - zipp==3.8.0
-prefix: /home/yifanlin/miniconda3/envs/atiss

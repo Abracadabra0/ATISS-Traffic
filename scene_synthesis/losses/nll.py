@@ -10,6 +10,7 @@ class WeightedNLL(nn.Module):
         self.with_components = with_components
 
     def forward(self, probs, gt):
+        device = gt['category'].device
         loss_category = probs['category'].log_prob(gt['category']) * self.weights['category']
 
         loss_location = probs['location'].log_prob(gt['location']) * self.weights['location']
@@ -22,11 +23,11 @@ class WeightedNLL(nn.Module):
         loss_omega = probs['velocity'][1].log_prob(gt['velocity'][:, 1])
         loss_moving = loss_s + loss_omega
         loss_velocity = torch.where(gt['velocity'][:, 0] == 0,
-                                    probs['velocity'][2].log_prob(0),
-                                    probs['velocity'][2].log_prob(1) + loss_moving) * self.weights['velocity']
+                                    probs['velocity'][2].log_prob(torch.tensor(0., device=device)),
+                                    probs['velocity'][2].log_prob(torch.tensor(1., device=device)) + loss_moving) * self.weights['velocity']
 
         loss = loss_category + torch.where(gt['category'] == 0,
-                                           torch.tensor(0.),
+                                           torch.tensor(0., device=device),
                                            loss_location + loss_bbox + loss_velocity)
         loss = -loss.mean()
 

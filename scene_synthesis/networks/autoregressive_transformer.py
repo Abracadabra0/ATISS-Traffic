@@ -9,25 +9,22 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical, Bernoulli, Normal, LogNormal, VonMises, Independent, MixtureSameFamily
-from fast_transformers.builders import TransformerEncoderBuilder
-from fast_transformers.masking import LengthMask
-from .utils import FixedPositionalEncoding, get_mlp
+from .utils import FixedPositionalEncoding, get_mlp, get_length_mask
 
 
 class AutoregressiveTransformer(nn.Module):
     def __init__(self, feature_extractor):
         super().__init__()
         # Build a transformer encoder
-        self.transformer_encoder = TransformerEncoderBuilder.from_kwargs(
-            n_layers=6,
-            n_heads=12,
-            query_dimensions=64,
-            value_dimensions=64,
-            feed_forward_dimensions=2048,
-            attention_type="full",
-            activation="gelu"
-        ).get()
-        self.d_model = 12 * 64
+        self.transformer_encoder = nn.Transformer(
+            d_model=768,
+            nhead=12,
+            num_encoder_layers=6,
+            dim_feedforward=2048,
+            activation='gelu',
+            batch_first=True
+        ).encoder
+        self.d_model = 768
 
         # extract features from maps
         self.feature_extractor = feature_extractor
@@ -91,8 +88,8 @@ class AutoregressiveTransformer(nn.Module):
                             dim=1)  # (B, L + 2, d_model)
 
         # Compute the features using causal masking
-        length_mask = LengthMask(lengths + 2)
-        output_f = self.transformer_encoder(input_f, length_mask=length_mask)
+        length_mask = get_length_mask(lengths + 2)
+        output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
         # take only the encoded q token
         output_f = output_f[:, 1, :]  # (B, d_model)
 

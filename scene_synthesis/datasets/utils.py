@@ -51,4 +51,5 @@ def collate_train(samples):
                     gt_list.append(torch.tensor([0., 0.]))
         gt[k] = torch.stack(gt_list)
     collated['map'] = torch.stack([sample['map'] for sample in samples])
-    return collated, torch.tensor(keep_lengths), gt
+
+    return collated, keep_lengths, gt

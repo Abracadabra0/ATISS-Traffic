@@ -50,6 +50,7 @@ class AutoregressiveTransformer(nn.Module):
                             get_mlp(512 + 64, 512),
                             get_mlp(512 + 64 * 2, 512),
                             get_mlp(512 + 64 * 3, 512)]
+        self.decoder_rnn = nn.Sequential(*self.decoder_rnn)
         self.prob_category = get_mlp(512, 4)  # categorical distribution
         self.prob_location = get_mlp(512, self.n_mixture + (2 + 2) * self.n_mixture)  # 2D normal distribution
         self.prob_wl = get_mlp(512, self.n_mixture + (2 + 2) * self.n_mixture)  # 2D LogNorm distribution

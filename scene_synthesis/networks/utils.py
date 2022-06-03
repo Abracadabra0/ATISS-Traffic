@@ -15,8 +15,8 @@ class FixedPositionalEncoding(nn.Module):
 
     def forward(self, x):
         return torch.cat([
-            torch.sin(x[..., None] * self.sigma),
-            torch.cos(x[..., None] * self.sigma)
+            torch.sin(x[..., None] * self.sigma.to(x.device)),
+            torch.cos(x[..., None] * self.sigma.to(x.device))
         ], dim=-1).flatten(start_dim=-2)
 
 

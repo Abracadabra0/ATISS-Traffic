@@ -33,10 +33,16 @@ class WeightedNLL(nn.Module):
 
         if self.with_components:
             components = {
-                'category': loss_category,
-                'location': loss_location,
-                'bbox': loss_bbox,
-                'velocity': loss_velocity
+                'category': -loss_category.mean(),
+                'location': -torch.where(gt['category'] == 0,
+                                           torch.tensor(0., device=device),
+                                           loss_location).mean(),
+                'bbox': -torch.where(gt['category'] == 0,
+                                           torch.tensor(0., device=device),
+                                           loss_bbox).mean(),
+                'velocity': -torch.where(gt['category'] == 0,
+                                           torch.tensor(0., device=device),
+                                           loss_velocity).mean()
             }
             return loss, components
         else:

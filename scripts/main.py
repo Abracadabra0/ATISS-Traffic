@@ -1,6 +1,7 @@
 import sys
 sys.path.append('/home/yefanlin/project/ATISS-Traffic')
 
+import os
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -19,8 +20,9 @@ if __name__ == '__main__':
     device = torch.device(0)
     np.random.seed(0)
     torch.manual_seed(0)
-    timestamp = time.strftime('%m-%d %H:%M:%S')
-    writer = SummaryWriter(log_dir=f'../log/{timestamp}')
+    timestamp = time.strftime('%m-%d-%H:%M:%S')
+    writer = SummaryWriter(log_dir=f'/home/yefanlin/project/ATISS-Traffic/log/{timestamp}')
+    os.makedirs('/home/yefanlin/project/ATISS-Traffic/ckpts', exist_ok=True)
     dataset = NuScenesDataset("/home/yefanlin/scratch/data/nuScene-processed", train=True)
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=4, collate_fn=collate_train)
     feature_extractor = ResNet18(10, 512)
@@ -29,12 +31,12 @@ if __name__ == '__main__':
     model.to(device)
     loss_fn = WeightedNLL(weights={
         'category': 1.,
-        'location': 0.01,
+        'location': 0.1,
         'bbox': 1.,
         'velocity': 1
     }, with_components=True)
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=1e-5)
+    optimizer = Adam(model.parameters(), lr=1e-6)
     n_epochs = 100
     iters = 0
 
@@ -53,7 +55,10 @@ if __name__ == '__main__':
             print(iters, loss.item())
             writer.add_scalar('loss/loss', loss.item(), iters)
             for k, v in components.items():
-                writer.add_scalar(f'loss/{k}', v.mean().item(), iters)
+                writer.add_scalar(f'loss/{k}', v.item(), iters)
             loss.backward()
             optimizer.step()
             iters += 1
+    
+    model.cpu()
+    torch.save(model, os.path.join('/home/yefanlin/project/ATISS-Traffic/ckpts', timestamp))

@@ -99,7 +99,7 @@ class AutoregressiveTransformer(nn.Module):
         prob_category = Categorical(logits=self.prob_category(f))
 
         # predict location
-        gt_category = gt['category']  # (B,)
+        gt_category = prob_category.sample()  # (B,)
         gt_category_f = self.category_embedding(gt_category)
         f = self.decoder_rnn[1](torch.cat([f, gt_category_f], dim=-1))
         prob_location = self.prob_location(f)
@@ -110,7 +110,7 @@ class AutoregressiveTransformer(nn.Module):
         prob_location = MixtureSameFamily(mixture_distribution, prob_location)  # batch_shape = B, event_shape = 2
 
         # predict wl and theta
-        gt_location = gt['location']  # (B, 2)
+        gt_location = prob_location.sample()  # (B, 2)
         gt_location_f = self.pe_location(gt_location)  # (B, 64 * 2)
         f = self.decoder_rnn[2](torch.cat([f, gt_location_f], dim=-1))
         prob_wl = self.prob_wl(f)
@@ -127,7 +127,7 @@ class AutoregressiveTransformer(nn.Module):
         prob_theta = MixtureSameFamily(mixture_distribution, prob_theta)  # batch_shape = B, event_shape = 1
 
         # predict s and omega
-        gt_bbox = gt['bbox']
+        gt_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()[..., None]], dim=-1)
         gt_bbox_f = self.pe_bbox(gt_bbox)  # (B, 64 * 3)
         f = self.decoder_rnn[3](torch.cat([f, gt_bbox_f], dim=-1))
         # predict the probability of s != 0
@@ -150,6 +150,107 @@ class AutoregressiveTransformer(nn.Module):
                 'location': prob_location,
                 'bbox': (prob_wl, prob_theta),
                 'velocity': (prob_s, prob_omega, prob_moving)}
+    
+    def generate(self, samples, lengths):
+        # Unpack the samples
+        self.eval()
+        with torch.no_grad():
+            category = samples["category"]  # (B, L)
+            location = samples["location"]
+            bbox = samples["bbox"]
+            velocity = samples["velocity"]
+            maps = samples["map"]
+            B, L, *_ = category.shape
+
+            # extract features from map
+            map_f = self.feature_extractor(maps)
+            map_f = self.fc_map(map_f)  # (B, d_model)
+
+            # embed category
+            category_f = self.category_embedding(category)
+            # positional encoding for location
+            location_f = self.pe_location(location)
+            # positional encoding for bounding box
+            bbox_f = self.pe_bbox(bbox)
+            # positional encoding for velocity
+            velocity_f = self.pe_velocity(velocity)
+            object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, L, 512)
+            object_f = self.fc_object(torch.flatten(object_f, start_dim=0, end_dim=1)).reshape(B, L,
+                                                                                               self.d_model)  # (B, L, d_model)
+
+            input_f = torch.cat([map_f[:, None, :],
+                                 self.q.expand(B, 1, self.d_model),
+                                 object_f],
+                                dim=1)  # (B, L + 2, d_model)
+
+            # Compute the features using causal masking
+            length_mask = get_length_mask(lengths + 2)
+            output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
+            # take only the encoded q token
+            output_f = output_f[:, 1, :]  # (B, d_model)
+
+            # predict category
+            f = self.decoder_rnn[0](output_f)  # (B, 512)
+            prob_category = Categorical(logits=self.prob_category(f))
+
+            # predict location
+            gt_category = prob_category.sample()  # (B,)
+            gt_category_f = self.category_embedding(gt_category)
+            f = self.decoder_rnn[1](torch.cat([f, gt_category_f], dim=-1))
+            prob_location = self.prob_location(f)
+            mixture_distribution = Categorical(logits=prob_location[:, :self.n_mixture])
+            prob_location = prob_location[:, self.n_mixture:].reshape(B, self.n_mixture, 4)  # (B, n_mixture, 4)
+            prob_location = Normal(prob_location[..., :2],
+                                   torch.exp(prob_location[..., 2:]))  # batch_shape = (B, n_mixture, 2)
+            prob_location = Independent(prob_location,
+                                        reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture), event_shape = 2
+            prob_location = MixtureSameFamily(mixture_distribution, prob_location)  # batch_shape = B, event_shape = 2
+
+            # predict wl and theta
+            gt_location = prob_location.sample()  # (B, 2)
+            gt_location_f = self.pe_location(gt_location)  # (B, 64 * 2)
+            f = self.decoder_rnn[2](torch.cat([f, gt_location_f], dim=-1))
+            prob_wl = self.prob_wl(f)
+            mixture_distribution = Categorical(logits=prob_wl[:, :self.n_mixture])
+            prob_wl = prob_wl[:, self.n_mixture:].reshape(B, self.n_mixture, 4)
+            prob_wl = LogNormal(prob_wl[..., :2], torch.exp(prob_wl[..., 2:]))
+            prob_wl = Independent(prob_wl, reinterpreted_batch_ndims=1)
+            prob_wl = MixtureSameFamily(mixture_distribution, prob_wl)
+
+            prob_theta = self.prob_theta(f)  # (B, n_mixture + 2 * n_mixture)
+            mixture_distribution = Categorical(logits=prob_theta[:, :self.n_mixture])
+            prob_theta = prob_theta[:, self.n_mixture:].reshape(B, self.n_mixture, 2)  # (B, n_mixture, 2)
+            prob_theta = VonMises(prob_theta[..., 0],
+                                  torch.exp(prob_theta[..., 1]))  # batch_shape = (B, n_mixture), event_shape = 1
+            prob_theta = MixtureSameFamily(mixture_distribution, prob_theta)  # batch_shape = B, event_shape = 1
+
+            # predict s and omega
+            gt_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()[None, ...]], dim=-1)
+            gt_bbox_f = self.pe_bbox(gt_bbox)  # (B, 64 * 3)
+            f = self.decoder_rnn[3](torch.cat([f, gt_bbox_f], dim=-1))
+            # predict the probability of s != 0
+            prob_moving = self.prob_moving(f).flatten()
+            prob_moving = Bernoulli(logits=prob_moving)
+
+            prob_s = self.prob_s(f)
+            mixture_distribution = Categorical(logits=prob_s[:, :self.n_mixture])
+            prob_s = prob_s[:, self.n_mixture:].reshape(B, self.n_mixture, 2)
+            prob_s = LogNormal(prob_s[..., 0], torch.exp(prob_s[..., 1]))
+            prob_s = MixtureSameFamily(mixture_distribution, prob_s)
+
+            prob_omega = self.prob_omega(f)
+            mixture_distribution = Categorical(logits=prob_omega[:, :self.n_mixture])
+            prob_omega = prob_omega[:, self.n_mixture:].reshape(B, self.n_mixture, 2)
+            prob_omega = VonMises(prob_omega[..., 0], torch.exp(prob_omega[..., 1]))
+            prob_omega = MixtureSameFamily(mixture_distribution, prob_omega)
+
+            gt_velocity = torch.cat([(prob_s.sample() * prob_moving.sample())[None, ...], prob_omega.sample()[None, ...]], dim=-1)
+
+        return {'category': gt_category,
+                'location': gt_location,
+                'bbox': gt_bbox,
+                'velocity': gt_velocity}
+
 
 
 

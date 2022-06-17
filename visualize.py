@@ -11,7 +11,7 @@ torch.manual_seed(0)
 dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
-model = torch.load('./ckpts/06-03-07:41:43')
+model = torch.load('./ckpts/06-16-07:30:15')
 
 data = dataset[11]
 input_data, length, _ = collate_train([data])
@@ -41,7 +41,7 @@ for i in range(length.item()):
         velocity = np.dot(np.array([speed, 0]), rotation)
         plt.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
 
-generated = model.generate(input_data, length)
+generated, probs = model.generate(input_data, length)
 for k in generated:
     generated[k] = generated[k].squeeze(0).numpy()
 category = generated['category'].item()
@@ -72,3 +72,5 @@ input_data = {}
 for k in data:
     input_data[k] = torch.tensor(data[k])
 input_data, length, _ = collate_train([input_data])
+
+grid = np.meshgrid(np.linspace(-axes_limit, axes_limit, 400), np.linspace(-axes_limit, axes_limit, 400))

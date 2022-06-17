@@ -249,7 +249,11 @@ class AutoregressiveTransformer(nn.Module):
         return {'category': gt_category,
                 'location': gt_location,
                 'bbox': gt_bbox,
-                'velocity': gt_velocity}
+                'velocity': gt_velocity}, \
+               {'category': prob_category,
+                'location': prob_location,
+                'bbox': (prob_wl, prob_theta),
+                'velocity': (prob_moving, prob_s, prob_omega)}
 
 
 

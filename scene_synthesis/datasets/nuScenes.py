@@ -1,3 +1,4 @@
+import math
 import torch
 from torch.utils.data import Dataset
 import numpy as np
@@ -11,15 +12,9 @@ from .utils import get_homogeneous_matrix, cartesian_to_polar
 
 class NuScenesDataset(Dataset):
     layer_names = ['drivable_area',
-                   'road_segment',
-                   'road_block',
-                   'lane',
                    'ped_crossing',
                    'walkway',
-                   'stop_line',
-                   'carpark_area',
-                   'road_divider',
-                   'lane_divider']
+                   'road_divider']
     Q = 0
     PEDESTRIAN = 1
     BICYCLIST = 2
@@ -73,7 +68,7 @@ class NuScenesDataset(Dataset):
                 nusc_map = NuScenesMap(dataroot=dataroot, map_name=map_name)
                 maps_cache[map_name] = nusc_map
             patch_box = (pose['translation'][0], pose['translation'][1], axes_limit * 2, axes_limit * 2)
-            patch_angle = 0  # Default orientation where North is up
+            patch_angle = math.degrees(Quaternion(pose['rotation']).yaw_pitch_roll[0])
             map_mask = nusc_map.get_map_mask(patch_box, patch_angle, cls.layer_names, canvas_size=None)
             map_mask = np.flip(map_mask, 1)
             # convert to torch.tensor and save it
@@ -81,12 +76,14 @@ class NuScenesDataset(Dataset):
             torch.save(map_mask, 'map')
 
             # retrieve all objects that fall inside the boundaries
-            _, boxes, _ = nusc.get_sample_data(sample['data']['LIDAR_TOP'], box_vis_level=BoxVisibility.ANY,
+            _, boxes, _ = nusc.get_sample_data(sample['data']['LIDAR_TOP'], box_vis_level=BoxVisibility.ALL,
                                                use_flat_vehicle_coordinates=True)
             boxes = filter(lambda x: -axes_limit < x.center[0] < axes_limit and -axes_limit < x.center[1] < axes_limit,
                            boxes)
             # filter out relevant categories
             boxes = filter(lambda x: x.name in cls.category_mapping, boxes)
+            boxes = list(boxes)
+            boxes.sort(key=lambda x: (-x.center[1], x.center[0]))
             # parse data
             category = []
             location = []
@@ -94,16 +91,17 @@ class NuScenesDataset(Dataset):
             velocity = []
             for box in boxes:
                 box_to_ego = get_homogeneous_matrix(box.center, box.rotation_matrix)
-                box_to_world = np.dot(ego_to_world, box_to_ego)
                 # calculates vehicle heading direction
-                _, heading = cartesian_to_polar(box_to_world[:2, 0])
+                _, heading = cartesian_to_polar(box_to_ego[:2, 0])
                 # calculates velocity by differentiate
-                v = nusc.box_velocity(box.token)[:2]
+                v = nusc.box_velocity(box.token)
                 # velocity could be nan. If so, drop it
                 if True in np.isnan(v):
                     continue
+                # convert to ego coordinate
+                v = np.dot(np.linalg.inv(ego_to_world[:3, :3]), v[..., None]).flatten()[:2]
                 category.append(cls.category_mapping[box.name])
-                location.append(box_to_world[:2, -1])
+                location.append(box.center[:2])
                 bbox.append((box.wlh[0], box.wlh[1], heading))
                 velocity.append(cartesian_to_polar(v))
             # convert to tensor and save

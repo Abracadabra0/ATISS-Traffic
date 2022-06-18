@@ -254,7 +254,7 @@ class AutoregressiveTransformer(nn.Module):
                 "category": prob_category,
                 "location": pred_location.squeeze(0),
                 "bbox": {"wl": pred_wl.squeeze(0), "theta": pred_theta.squeeze(0)},
-                "velocity": {"moving": pred_moving.squeeze[0], "s": pred_s.squeeze(0), "omega": pred_omega.squeeze(0)}
+                "velocity": {"moving": pred_moving.squeeze(0), "s": pred_s.squeeze(0), "omega": pred_omega.squeeze(0)}
             }
             return preds, probs
 

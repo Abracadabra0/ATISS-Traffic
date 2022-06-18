@@ -61,7 +61,7 @@ class AutoregressiveTransformer(nn.Module):
                                                get_mlp(self.d_model + 64 * 2,
                                                        (1 + 2 * 2) * self.n_mixture +
                                                        (1 + 1 * 2) * self.n_mixture),  # bbox
-                                               get_mlp(self.d_model + 64 * 3,
+                                               get_mlp(self.d_model + 64 * 5,
                                                        1 + (1 + 1 * 2) * self.n_mixture +
                                                        (1 + 1 * 2) * self.n_mixture))  # velocity
 
@@ -70,7 +70,7 @@ class AutoregressiveTransformer(nn.Module):
                                              get_mlp(self.d_model + 64 * 2,
                                                      (1 + 2 * 2) * self.n_mixture +
                                                      (1 + 1 * 2) * self.n_mixture),  # bbox
-                                             get_mlp(self.d_model + 64 * 3,
+                                             get_mlp(self.d_model + 64 * 5,
                                                      1 + (1 + 1 * 2) * self.n_mixture +
                                                      (1 + 1 * 2) * self.n_mixture))  # velocity
 
@@ -155,6 +155,7 @@ class AutoregressiveTransformer(nn.Module):
             loss[k] = loss_select[0][k]
             loss[k] = torch.where(gt['category'] == 2, loss_select[1][k], loss[k])
             loss[k] = torch.where(gt['category'] == 3, loss_select[2][k], loss[k])
+            loss[k] = loss[k].mean()
 
         return loss
 

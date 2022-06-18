@@ -126,9 +126,4 @@ class NuScenesDataset(Dataset):
         for filename in os.listdir(path):
             datapath = os.path.join(path, filename)
             data[filename] = torch.load(datapath)
-        if self.train:
-            # randomly permute objects
-            perm = torch.randperm(data['category'].shape[0])
-            for k in ['category', 'location', 'bbox', 'velocity']:
-                data[k] = data[k][perm]
         return data

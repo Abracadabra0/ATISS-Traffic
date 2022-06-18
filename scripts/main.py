@@ -30,7 +30,7 @@ if __name__ == '__main__':
     model = AutoregressiveTransformer(feature_extractor)
     model.to(device)
     loss_fn = WeightedNLL(weights={
-        'category': 1.,
+        'category': 0.5,
         'location': 0.1,
         'bbox': 1.,
         'velocity': 1
@@ -60,4 +60,4 @@ if __name__ == '__main__':
             iters += 1
     
     model.cpu()
-    torch.save(model, os.path.join('/home/yefanlin/project/ATISS-Traffic/ckpts', timestamp))
+    torch.save(model.state_dict(), os.path.join('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', timestamp))

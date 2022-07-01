@@ -11,7 +11,7 @@ class WeightedNLL(nn.Module):
     def forward(self, probs, gt):
         device = gt['category'].device
         loss_category = -probs['category'].log_prob(gt['category'])
-        loss_location = -probs['location'].log_prob(gt['location'])
+        loss_location = -probs['location'].log_prob(gt['location'] / 40)
         loss_wl = -probs['bbox']['wl'].log_prob(gt['bbox'][:, :2] + self._eps)
         loss_theta = -probs['bbox']['theta'].log_prob(gt['bbox'][:, 2:])
         loss_bbox = loss_wl + loss_theta

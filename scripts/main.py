@@ -31,7 +31,7 @@ if __name__ == '__main__':
     model.to(device)
     loss_fn = WeightedNLL(weights={
         'category': 0.5,
-        'location': 0.1,
+        'location': 0.5,
         'bbox': 1.,
         'velocity': 1
     })

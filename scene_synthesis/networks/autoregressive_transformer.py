@@ -33,7 +33,7 @@ class AutoregressiveTransformer(nn.Module):
         self.category_embedding = nn.Embedding(4, 64)
 
         # Positional encoding for other attributes
-        self.pe_location = FixedPositionalEncoding(proj_dims=64, t_min=1, t_max=64)
+        self.pe_location = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
         self.pe_bbox = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
         self.pe_velocity = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
 
@@ -74,13 +74,12 @@ class AutoregressiveTransformer(nn.Module):
                                                      1 + (1 + 1 * 2) * self.n_mixture +
                                                      (1 + 1 * 2) * self.n_mixture))  # velocity
 
-    def mix_distribution(self, f, distribution, event_shape, mean_adjust=1, var_adjust=1):
+    def mix_distribution(self, f, distribution, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
         B = f.shape[0]
         mixture = Categorical(logits=f[:, :self.n_mixture])
         prob = f[:, self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
-        prob = distribution(prob[..., :event_shape] * mean_adjust,
-                            torch.exp(prob[..., event_shape:] * var_adjust))  # batch_shape = (B, n_mixture, event_shape)
+        prob = distribution(prob[..., :event_shape], torch.exp(prob[..., event_shape:]))  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
         return prob
@@ -128,7 +127,7 @@ class AutoregressiveTransformer(nn.Module):
         loss_select = []
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
             location_f = decoder[0](output_f)
-            prob_location = self.mix_distribution(location_f, Normal, 2, mean_adjust=100, var_adjust=10)
+            prob_location = self.mix_distribution(location_f, Normal, 2)
             pred_location = prob_location.sample()
 
             bbox_f = decoder[1](torch.cat([output_f, self.pe_location(pred_location)], dim=-1))
@@ -252,7 +251,7 @@ class AutoregressiveTransformer(nn.Module):
             }
             preds = {
                 "category": pred_category,
-                "location": pred_location.squeeze(0),
+                "location": pred_location.squeeze(0) * 40,
                 "bbox": {"wl": pred_wl.squeeze(0), "theta": pred_theta.squeeze(0)},
                 "velocity": {"moving": pred_moving.squeeze(0), "s": pred_s.squeeze(0), "omega": pred_omega.squeeze(0)}
             }

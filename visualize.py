@@ -15,7 +15,7 @@ axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 feature_extractor = ResNet18(4, 512)
 model = AutoregressiveTransformer(feature_extractor)
-model.load_state_dict(torch.load('./ckpts/06-18-11:35:01'))
+model.load_state_dict(torch.load('./ckpts/07-01-04:15:14'))
 
 data = dataset[11]
 input_data, length, _ = collate_train([data])

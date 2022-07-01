@@ -24,20 +24,20 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'/home/yefanlin/scratch/project/ATISS-Traffic/log/{timestamp}')
     os.makedirs('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', exist_ok=True)
     dataset = NuScenesDataset("/home/yefanlin/scratch/data/nuScene-processed", train=True)
-    dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=4, collate_fn=collate_train)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_train)
     feature_extractor = ResNet18(4, 512)
     feature_extractor.to(device)
     model = AutoregressiveTransformer(feature_extractor)
     model.to(device)
     loss_fn = WeightedNLL(weights={
         'category': 0.5,
-        'location': 0.5,
+        'location': 1.,
         'bbox': 1.,
         'velocity': 1
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=1e-6)
-    n_epochs = 100
+    optimizer = Adam(model.parameters(), lr=1e-7)
+    n_epochs = 4000
     iters = 0
 
     for epoch in range(n_epochs):

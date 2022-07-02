@@ -19,15 +19,15 @@ def to_numpy(data: dict):
             to_numpy(data[k])
 
 plt.ion()
-# np.random.seed(0)
-# torch.manual_seed(0)
+np.random.seed(0)
+torch.manual_seed(0)
 dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
 axes_limit = 40
 _, ax = plt.subplots()
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 feature_extractor = ResNet18(4, 512)
 model = AutoregressiveTransformer(feature_extractor)
-model.load_state_dict(torch.load('./ckpts/07-02-03:33:26'))
+model.load_state_dict(torch.load('./ckpts/07-02-04:36:28'))
 
 data = dataset[11]
 input_data, length, _ = collate_train([data])
@@ -101,7 +101,7 @@ if category != 0:
 _, ax_prob = plt.subplots()
 grid = np.meshgrid(np.linspace(-axes_limit, axes_limit, 400), np.linspace(axes_limit, -axes_limit, 400))
 grid = np.stack(grid, axis=-1)
-prob_map = probs['location'].log_prob(torch.tensor(grid / 40))
+prob_map = np.exp(probs['location'].log_prob(torch.tensor(grid / 40)))
 ax_prob.imshow(prob_map, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
 mean = probs['location'].component_distribution.mean.squeeze().numpy() * 40
 ax_prob.scatter(mean[:, 0], mean[:, 1])

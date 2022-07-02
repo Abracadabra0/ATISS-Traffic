@@ -5,7 +5,10 @@ from torch import nn
 class WeightedNLL(nn.Module):
     def __init__(self, weights):
         super().__init__()
-        self.weights = weights
+        self.weights = dict(weights)
+        total = sum(weights.values())
+        for k in self.weights:
+            self.weights[k] = self.weights[k] / total
         self._eps = 1e-6  # numerical stability for LogNorm
 
     def forward(self, probs, gt):

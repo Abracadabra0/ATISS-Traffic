@@ -30,10 +30,10 @@ if __name__ == '__main__':
     model = AutoregressiveTransformer(feature_extractor)
     model.to(device)
     loss_fn = WeightedNLL(weights={
-        'category': 0.5,
+        'category': 0.2,
         'location': 1.,
-        'bbox': 1.,
-        'velocity': 1
+        'bbox': 1.2,
+        'velocity': 0.8
     })
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=5e-7)

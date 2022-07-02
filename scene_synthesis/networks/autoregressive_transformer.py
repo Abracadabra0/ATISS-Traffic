@@ -73,6 +73,7 @@ class AutoregressiveTransformer(nn.Module):
                                              get_mlp(self.d_model + 64 * 5,
                                                      1 + (1 + 1 * 2) * self.n_mixture +
                                                      (1 + 1 * 2) * self.n_mixture))  # velocity
+        self.iters = 0
 
     def mix_distribution(self, f, distribution, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
@@ -123,6 +124,8 @@ class AutoregressiveTransformer(nn.Module):
         # predict category
         prob_category = self.prob_category(output_f)  # (B, 4)
         prob_category = Categorical(logits=prob_category)
+        if self.iters % 100 == 99:
+            print(f'logits: {prob_category.logits}')
 
         loss_select = []
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
@@ -148,6 +151,8 @@ class AutoregressiveTransformer(nn.Module):
             }
             loss_components = loss_fn(probs, gt)
             loss_select.append(loss_components)
+            if self.iters % 100 == 99:
+                print(f'loc: {pred_location.squeeze() * 40}')
 
         loss = {}
         for k in ['all', 'category', 'location', 'bbox', 'velocity']:
@@ -156,6 +161,7 @@ class AutoregressiveTransformer(nn.Module):
             loss[k] = torch.where(gt['category'] == 3, loss_select[2][k], loss[k])
             loss[k] = loss[k].mean()
 
+        self.iters += 1
         return loss
 
     def generate(self, samples, lengths):

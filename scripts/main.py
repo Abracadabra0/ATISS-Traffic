@@ -36,12 +36,13 @@ if __name__ == '__main__':
         'velocity': 1
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=1e-7)
+    optimizer = Adam(model.parameters(), lr=5e-7)
     n_epochs = 4000
     iters = 0
 
     for epoch in range(n_epochs):
-        print(f'----------------Epoch {epoch}----------------')
+        if epoch % 100 == 99:
+            print(f'----------------Epoch {epoch}----------------')
         for samples, lengths, gt in dataloader:
             for k in samples:
                 samples[k] = samples[k].to(device)
@@ -51,7 +52,8 @@ if __name__ == '__main__':
             
             optimizer.zero_grad()
             loss = model(samples, lengths, gt, loss_fn)
-            print(iters, loss['all'].item())
+            if epoch % 100 == 99:
+                print(iters, loss['all'].item())
             writer.add_scalar('loss/loss', loss['all'].item(), iters)
             for k in ['category', 'location', 'bbox', 'velocity']:
                 writer.add_scalar(f'loss/{k}', loss[k].item(), iters)

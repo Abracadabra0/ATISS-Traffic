@@ -83,7 +83,7 @@ class AutoregressiveTransformer(nn.Module):
         B = f.shape[0]
         mixture = Categorical(logits=f[:, :self.n_mixture])
         prob = f[:, self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
-        prob = distribution(prob[..., :event_shape], torch.sigmoid(prob[..., event_shape:]))  # batch_shape = (B, n_mixture, event_shape)
+        prob = distribution(prob[..., :event_shape], torch.sigmoid(prob[..., event_shape:]) * 0.25)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
         return prob
@@ -115,9 +115,8 @@ class AutoregressiveTransformer(nn.Module):
 
         input_f = torch.cat([map_f[:, None, :],
                              self.q.expand(B, 1, self.d_model),
-                             object_f],
+                             self.pe(object_f)],
                             dim=1)  # (B, L + 2, d_model)
-        input_f = self.pe(input_f)
 
         # Compute the features using causal masking
         length_mask = get_length_mask(lengths + 2)

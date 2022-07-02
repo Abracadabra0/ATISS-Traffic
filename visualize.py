@@ -19,15 +19,15 @@ def to_numpy(data: dict):
             to_numpy(data[k])
 
 plt.ion()
-np.random.seed(0)
-torch.manual_seed(0)
+# np.random.seed(0)
+# torch.manual_seed(0)
 dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
 axes_limit = 40
 _, ax = plt.subplots()
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 feature_extractor = ResNet18(4, 512)
 model = AutoregressiveTransformer(feature_extractor)
-model.load_state_dict(torch.load('./ckpts/07-02-00:34:47'))
+model.load_state_dict(torch.load('./ckpts/07-02-03:33:26'))
 
 data = dataset[11]
 input_data, length, _ = collate_train([data])
@@ -58,7 +58,7 @@ for i in range(length.item()):
         ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
 
 condition = {
-    "category": 1,  # int
+    "category": 3,  # int
     "location": None,  # (1, 2)
     "bbox": None,  # (1, 2), (1, 1)
     "velocity": None  # (1, 1), (1, 1), (1, 1)

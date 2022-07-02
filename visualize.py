@@ -7,9 +7,20 @@ from scene_synthesis.networks.feature_extractors import ResNet18
 from scene_synthesis.networks.autoregressive_transformer import AutoregressiveTransformer
 
 
+def to_numpy(data: dict):
+    for k in data:
+        if isinstance(data[k], torch.Tensor):
+            data[k] = data[k].squeeze()
+            if not data[k].shape:
+                data[k] = data[k].item()
+            else:
+                data[k] = data[k].numpy()
+        elif isinstance(data[k], dict):
+            to_numpy(data[k])
+
 plt.ion()
-np.random.seed(0)
-torch.manual_seed(0)
+# np.random.seed(0)
+# torch.manual_seed(0)
 dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
 axes_limit = 40
 _, ax = plt.subplots()
@@ -46,20 +57,15 @@ for i in range(length.item()):
         velocity = np.dot(np.array([speed, 0]), rotation)
         ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
 
-preds, probs = model.generate(input_data, length)
-for k in preds:
-    if isinstance(preds[k], torch.Tensor):
-        if len(preds[k]) == 1:
-            preds[k] = preds[k].item()
-        else:
-            preds[k] = preds[k].numpy()
-    elif isinstance(preds[k], dict):
-        for j in preds[k]:
-            if isinstance(preds[k][j], torch.Tensor):
-                if len(preds[k][j]) == 1:
-                    preds[k][j] = preds[k][j].item()
-                else:
-                    preds[k][j] = preds[k][j].numpy()
+condition = {
+    "category": None,  # int
+    "location": None,  # (1, 2)
+    "bbox": None,  # (1, 2), (1, 1)
+    "velocity": None  # (1, 1), (1, 1), (1, 1)
+}
+
+preds, probs = model.generate(input_data, length, condition)
+to_numpy(preds)
 category = preds['category']
 if category != 0:
     color = cat2color[category]
@@ -82,15 +88,15 @@ if category != 0:
                          [-np.sin(omega), np.cos(omega)]])
     velocity = np.dot(np.array([speed, 0]), rotation)
     ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
-data['category'] = np.concatenate([data['category'], np.array([preds['category']])], axis=0)
-data['location'] = np.concatenate([data['location'], preds['location'].reshape(1, -1)], axis=0)
-data['bbox'] = np.concatenate([data['bbox'], np.concatenate([preds['bbox']['wl'], np.array([preds['bbox']['theta']])], axis=0).reshape(1, -1)], axis=0)
-data['velocity'] = np.concatenate([data['velocity'], np.array([[preds['velocity']['s'] * preds['velocity']['moving'], preds['velocity']['omega']]])], axis=0)
-input_data = {}
-input_data['category'] = torch.tensor(data['category'])
-for k in ['location', 'bbox', 'velocity', 'map']:
-    input_data[k] = torch.tensor(data[k], dtype=torch.float)
-input_data, length, _ = collate_train([input_data])
+    data['category'] = np.concatenate([data['category'], np.array([preds['category']])], axis=0)
+    data['location'] = np.concatenate([data['location'], preds['location'].reshape(1, -1)], axis=0)
+    data['bbox'] = np.concatenate([data['bbox'], np.concatenate([preds['bbox']['wl'], np.array([preds['bbox']['theta']])], axis=0).reshape(1, -1)], axis=0)
+    data['velocity'] = np.concatenate([data['velocity'], np.array([[preds['velocity']['s'] * preds['velocity']['moving'], preds['velocity']['omega']]])], axis=0)
+    input_data = {}
+    input_data['category'] = torch.tensor(data['category'])
+    for k in ['location', 'bbox', 'velocity', 'map']:
+        input_data[k] = torch.tensor(data[k], dtype=torch.float)
+    input_data, length, _ = collate_train([input_data])
 
 _, ax_prob = plt.subplots()
 grid = np.meshgrid(np.linspace(-axes_limit, axes_limit, 400), np.linspace(axes_limit, -axes_limit, 400))

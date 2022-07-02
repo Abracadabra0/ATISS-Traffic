@@ -80,7 +80,7 @@ class AutoregressiveTransformer(nn.Module):
         B = f.shape[0]
         mixture = Categorical(logits=f[:, :self.n_mixture])
         prob = f[:, self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
-        prob = distribution(prob[..., :event_shape], torch.exp(prob[..., event_shape:]))  # batch_shape = (B, n_mixture, event_shape)
+        prob = distribution(prob[..., :event_shape], torch.sigmoid(prob[..., event_shape:]) * 0.5)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
         return prob
@@ -164,7 +164,7 @@ class AutoregressiveTransformer(nn.Module):
         self.iters += 1
         return loss
 
-    def generate(self, samples, lengths):
+    def generate(self, samples, lengths, condition):
         # Unpack the samples
         # B = 1
         self.eval()
@@ -204,9 +204,13 @@ class AutoregressiveTransformer(nn.Module):
             output_f = output_f[:, 1, :]  # (B, d_model)
 
             # predict category
-            prob_category = self.prob_category(output_f)  # (B, 4)
-            prob_category = Categorical(logits=prob_category)
-            pred_category = prob_category.sample().item()
+            if condition['category'] is not None:
+                prob_category = None
+                pred_category = condition['category']
+            else:
+                prob_category = self.prob_category(output_f)  # (B, 4)
+                prob_category = Categorical(logits=prob_category)
+                pred_category = prob_category.sample().item()
 
             if pred_category == 0:
                 probs = {
@@ -229,25 +233,43 @@ class AutoregressiveTransformer(nn.Module):
             else:
                 decoder = self.decoder_vehicle
 
-            location_f = decoder[0](output_f)
-            prob_location = self.mix_distribution(location_f, Normal, 2)
-            pred_location = prob_location.sample()
+            if condition['location'] is not None:
+                prob_location = None
+                pred_location = condition['location']
+            else:
+                location_f = decoder[0](output_f)
+                prob_location = self.mix_distribution(location_f, Normal, 2)
+                pred_location = prob_location.sample()
 
-            bbox_f = decoder[1](torch.cat([output_f, self.pe_location(pred_location)], dim=-1))
-            prob_wl = self.mix_distribution(bbox_f[:, :(1 + 2 * 2) * self.n_mixture], LogNormal, 2)
-            prob_theta = self.mix_distribution(bbox_f[:, (1 + 2 * 2) * self.n_mixture:], VonMises, 1)
-            pred_wl = prob_wl.sample()
-            pred_theta = prob_theta.sample()
+            if condition['bbox'] is not None:
+                prob_wl = None
+                prob_theta = None
+                pred_wl = condition['bbox']['wl']
+                pred_theta = condition['bbox']['theta']
+            else:
+                bbox_f = decoder[1](torch.cat([output_f, self.pe_location(pred_location)], dim=-1))
+                prob_wl = self.mix_distribution(bbox_f[:, :(1 + 2 * 2) * self.n_mixture], LogNormal, 2)
+                prob_theta = self.mix_distribution(bbox_f[:, (1 + 2 * 2) * self.n_mixture:], VonMises, 1)
+                pred_wl = prob_wl.sample()
+                pred_theta = prob_theta.sample()
             pred_bbox = torch.cat([pred_wl, pred_theta], dim=-1)
 
-            velocity_f = decoder[2](
-                torch.cat([output_f, self.pe_location(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
-            prob_moving = Bernoulli(logits=velocity_f[:, :1])
-            prob_s = self.mix_distribution(velocity_f[:, 1:1 + (1 + 1 * 2) * self.n_mixture], LogNormal, 1)
-            prob_omega = self.mix_distribution(velocity_f[:, 1 + (1 + 1 * 2) * self.n_mixture:], VonMises, 1)
-            pred_moving = prob_moving.sample()
-            pred_s = prob_s.sample()
-            pred_omega = prob_omega.sample()
+            if condition['velocity'] is not None:
+                prob_moving = None
+                prob_s = None
+                prob_omega = None
+                pred_moving = condition['velocity']['moving']
+                pred_s = condition['velocity']['s']
+                pred_omega = condition['velocity']['omega']
+            else:
+                velocity_f = decoder[2](
+                    torch.cat([output_f, self.pe_location(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
+                prob_moving = Bernoulli(logits=velocity_f[:, :1])
+                prob_s = self.mix_distribution(velocity_f[:, 1:1 + (1 + 1 * 2) * self.n_mixture], LogNormal, 1)
+                prob_omega = self.mix_distribution(velocity_f[:, 1 + (1 + 1 * 2) * self.n_mixture:], VonMises, 1)
+                pred_moving = prob_moving.sample()
+                pred_s = prob_s.sample()
+                pred_omega = prob_omega.sample()
 
             probs = {
                 "category": prob_category,

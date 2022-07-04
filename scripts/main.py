@@ -32,12 +32,12 @@ if __name__ == '__main__':
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
         'location': 1.,
-        'bbox': 2.,
-        'velocity': 0.6
+        'bbox': 1.2,
+        'velocity': 0.8
     })
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=5e-7)
-    n_epochs = 4000
+    n_epochs = 3000
     iters = 0
 
     for epoch in range(n_epochs):

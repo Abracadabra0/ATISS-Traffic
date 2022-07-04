@@ -33,12 +33,9 @@ class AutoregressiveTransformer(nn.Module):
         self.category_embedding = nn.Embedding(4, 64)
 
         # Positional encoding for other attributes
-        # self.pe_location = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
-        # self.pe_bbox = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
-        # self.pe_velocity = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
-        self.pe_location = get_mlp(2, 64 * 2)
-        self.pe_bbox = get_mlp(3, 64 * 3)
-        self.pe_velocity = get_mlp(2, 64 * 2)
+        self.pe_location = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
+        self.pe_bbox = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
+        self.pe_velocity = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
 
         # map from object feature to transformer input
         self.fc_map = get_mlp(512, self.d_model)

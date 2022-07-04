@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical, Bernoulli, Normal, LogNormal, VonMises, Independent, MixtureSameFamily
 from .utils import FixedPositionalEncoding, PositionalEncoding, get_mlp, get_length_mask
+import numpy as np
 
 
 class AutoregressiveTransformer(nn.Module):
@@ -134,7 +135,10 @@ class AutoregressiveTransformer(nn.Module):
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
             location_f = decoder[0](output_f)
             prob_location = self.mix_distribution(location_f, Normal, 2)
-            pred_location = prob_location.sample()
+            if np.random.rand() < 0.5:
+                pred_location = gt['location']
+            else:
+                pred_location = prob_location.sample()
 
             bbox_f = decoder[1](torch.cat([output_f, self.pe_location(pred_location)], dim=-1))
             prob_wl = self.mix_distribution(bbox_f[:, :(1 + 2 * 2) * self.n_mixture], LogNormal, 2)

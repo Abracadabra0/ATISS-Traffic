@@ -58,7 +58,7 @@ for i in range(length.item()):
         ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
 
 condition = {
-    "category": 3,  # int
+    "category": 2,  # int
     "location": None,  # (1, 2)
     "bbox": None,  # (1, 2), (1, 1)
     "velocity": None  # (1, 1), (1, 1), (1, 1)

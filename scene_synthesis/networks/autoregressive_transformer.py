@@ -116,7 +116,7 @@ class AutoregressiveTransformer(nn.Module):
 
         input_f = torch.cat([map_f[:, None, :],
                              self.q.expand(B, 1, self.d_model),
-                             self.pe(object_f)],
+                             object_f],
                             dim=1)  # (B, L + 2, d_model)
 
         # Compute the features using causal masking

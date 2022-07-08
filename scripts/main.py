@@ -24,6 +24,7 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'/home/yefanlin/scratch/project/ATISS-Traffic/log/{timestamp}')
     os.makedirs('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', exist_ok=True)
     dataset = NuScenesDataset("/home/yefanlin/scratch/data/nuScene-processed", train=True)
+    # dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_train)
     feature_extractor = ResNet18(4, 512)
     feature_extractor.to(device)
@@ -36,7 +37,7 @@ if __name__ == '__main__':
         'velocity': 0.8
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=5e-7)
+    optimizer = Adam(model.parameters(), lr=5e-5)
     n_epochs = 3000
     iters = 0
 

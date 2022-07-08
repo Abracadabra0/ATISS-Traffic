@@ -17,15 +17,16 @@ class AutoregressiveTransformer(nn.Module):
     def __init__(self, feature_extractor):
         super().__init__()
         # Build a transformer encoder
-        self.transformer_encoder = nn.Transformer(
-            d_model=768,
-            nhead=12,
-            num_encoder_layers=6,
-            dim_feedforward=2048,
-            activation='gelu',
-            batch_first=True
-        ).encoder
+        # self.transformer_encoder = nn.Transformer(
+        #     d_model=768,
+        #     nhead=12,
+        #     num_encoder_layers=6,
+        #     dim_feedforward=2048,
+        #     activation='gelu',
+        #     batch_first=True
+        # ).encoder
         self.d_model = 768
+        self.transformer_encoder = nn.LSTM(input_size=self.d_model, hidden_size=self.d_model, batch_first=True)
 
         # extract features from maps
         self.feature_extractor = feature_extractor
@@ -114,16 +115,17 @@ class AutoregressiveTransformer(nn.Module):
         object_f = self.fc_object(torch.flatten(object_f, start_dim=0, end_dim=1)).reshape(B, L,
                                                                                            self.d_model)  # (B, L, d_model)
 
-        input_f = torch.cat([map_f[:, None, :],
-                             self.q.expand(B, 1, self.d_model),
-                             object_f],
-                            dim=1)  # (B, L + 2, d_model)
+        # input_f = torch.cat([map_f[:, None, :],
+        #                      self.q.expand(B, 1, self.d_model),
+        #                      object_f],
+        #                     dim=1)  # (B, L + 2, d_model)
 
         # Compute the features using causal masking
         length_mask = get_length_mask(lengths + 2)
-        output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
+        _, (output_f, _) = self.transformer_encoder(object_f)
+        output_f = output_f.squeeze(0)
         # take only the encoded q token
-        output_f = output_f[:, 1, :]  # (B, d_model)
+        # output_f = output_f[:, 1, :]  # (B, d_model)
 
         # predict category
         prob_category = self.prob_category(output_f)  # (B, 4)
@@ -201,7 +203,7 @@ class AutoregressiveTransformer(nn.Module):
 
             input_f = torch.cat([map_f[:, None, :],
                                  self.q.expand(B, 1, self.d_model),
-                                 object_f],
+                                 self.pe(object_f)],
                                 dim=1)  # (B, L + 2, d_model)
 
             # Compute the features using causal masking

@@ -34,7 +34,7 @@ def cartesian_to_polar(vector: np.array) -> np.array:
 def collate_train(samples, keep_all=False):
     lengths = [len(sample['category']) for sample in samples]
     if not keep_all:
-        keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
+        keep_lengths = [np.random.randint(1, length + 1) for length in lengths]
     else:
         keep_lengths = lengths.copy()
     collated = {}

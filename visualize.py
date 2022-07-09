@@ -27,9 +27,9 @@ _, ax = plt.subplots()
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 feature_extractor = ResNet18(4, 512)
 model = AutoregressiveTransformer(feature_extractor)
-model.load_state_dict(torch.load('./ckpts/pe+fix+0.5'))
+model.load_state_dict(torch.load('./ckpts/rnn'))
 
-data = dataset[11]
+data = dataset[0]
 input_data, length, _ = collate_train([data])
 for k in data:
     data[k] = input_data[k].squeeze(0).numpy()

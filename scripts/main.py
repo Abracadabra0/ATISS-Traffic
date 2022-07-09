@@ -1,4 +1,5 @@
 import sys
+
 sys.path.append('/home/yefanlin/project/ATISS-Traffic')
 
 import os
@@ -14,7 +15,6 @@ from torch.optim import Adam
 import numpy as np
 from scene_synthesis.losses.nll import WeightedNLL
 import time
-
 
 if __name__ == '__main__':
     device = torch.device(0)
@@ -50,7 +50,7 @@ if __name__ == '__main__':
             lengths = lengths.to(device)
             for k in gt:
                 gt[k] = gt[k].to(device)
-            
+
             optimizer.zero_grad()
             loss = model(samples, lengths, gt, loss_fn)
             if epoch % 100 == 99:
@@ -61,6 +61,6 @@ if __name__ == '__main__':
             loss['all'].backward()
             optimizer.step()
             iters += 1
-    
+
     model.cpu()
     torch.save(model.state_dict(), os.path.join('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', timestamp))

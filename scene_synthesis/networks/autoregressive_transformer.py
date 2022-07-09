@@ -34,8 +34,10 @@ class AutoregressiveTransformer(nn.Module):
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)
 
+        # Embed location
+        self.location_embedding = nn.Embedding(400, 128)
+
         # Positional encoding for other attributes
-        self.pe_location = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
         self.pe_bbox = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
         self.pe_velocity = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
 
@@ -50,29 +52,26 @@ class AutoregressiveTransformer(nn.Module):
         self.pe = PositionalEncoding(self.d_model)
 
         # used for autoregressive decoding
-        self.n_mixture = 10
+        self.n_mixture = 4
         self.prob_category = get_mlp(self.d_model, 4)  # categorical distribution
 
-        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model,
-                                                        (1 + 2 * 2) * self.n_mixture),  # location
-                                                get_mlp(self.d_model + 64 * 2,
+        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
+                                                get_mlp(self.d_model + 128,
                                                         (1 + 2 * 2) * self.n_mixture +
                                                         (1 + 1 * 2) * self.n_mixture),  # bbox
                                                 get_mlp(self.d_model + 64 * 5,
                                                         1 + (1 + 1 * 2) * self.n_mixture +
                                                         (1 + 1 * 2) * self.n_mixture))  # velocity
-        self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model,
-                                                       (1 + 2 * 2) * self.n_mixture),  # location
-                                               get_mlp(self.d_model + 64 * 2,
+        self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model, 400),  # location
+                                               get_mlp(self.d_model + 128,
                                                        (1 + 2 * 2) * self.n_mixture +
                                                        (1 + 1 * 2) * self.n_mixture),  # bbox
                                                get_mlp(self.d_model + 64 * 5,
                                                        1 + (1 + 1 * 2) * self.n_mixture +
                                                        (1 + 1 * 2) * self.n_mixture))  # velocity
 
-        self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model,
-                                                     (1 + 2 * 2) * self.n_mixture),  # location
-                                             get_mlp(self.d_model + 64 * 2,
+        self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model, 400),  # location
+                                             get_mlp(self.d_model + 128,
                                                      (1 + 2 * 2) * self.n_mixture +
                                                      (1 + 1 * 2) * self.n_mixture),  # bbox
                                              get_mlp(self.d_model + 64 * 5,
@@ -93,7 +92,8 @@ class AutoregressiveTransformer(nn.Module):
     def forward(self, samples, lengths, gt, loss_fn):
         # Unpack the samples
         category = samples["category"]  # (B, L)
-        location = samples["location"]
+        location = ((samples['location'] + 40) / 4).long()
+        location = location[..., 0] * 20 + location[..., 1]
         bbox = samples["bbox"]
         velocity = samples["velocity"]
         maps = samples["map"]
@@ -106,7 +106,7 @@ class AutoregressiveTransformer(nn.Module):
         # embed category
         category_f = self.category_embedding(category)
         # positional encoding for location
-        location_f = self.pe_location(location)
+        location_f = self.location_embedding(location)
         # positional encoding for bounding box
         bbox_f = self.pe_bbox(bbox)
         # positional encoding for velocity
@@ -130,24 +130,19 @@ class AutoregressiveTransformer(nn.Module):
         # predict category
         prob_category = self.prob_category(output_f)  # (B, 4)
         prob_category = Categorical(logits=prob_category)
-        if self.iters % 100 == 99:
-            print(f'logits: {prob_category.logits}')
 
         loss_select = []
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
             location_f = decoder[0](output_f)
-            prob_location = self.mix_distribution(location_f, Normal, 2)
-            if np.random.rand() < 0.5:
-                pred_location = gt['location']
-            else:
-                pred_location = prob_location.sample()
+            prob_location = Categorical(logits=location_f)
+            pred_location = prob_location.sample()
 
-            bbox_f = decoder[1](torch.cat([output_f, self.pe_location(pred_location)], dim=-1))
+            bbox_f = decoder[1](torch.cat([output_f, self.location_embedding(pred_location)], dim=-1))
             prob_wl = self.mix_distribution(bbox_f[:, :(1 + 2 * 2) * self.n_mixture], LogNormal, 2)
             prob_theta = self.mix_distribution(bbox_f[:, (1 + 2 * 2) * self.n_mixture:], VonMises, 1)
             pred_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()], dim=-1)
 
-            velocity_f = decoder[2](torch.cat([output_f, self.pe_location(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
+            velocity_f = decoder[2](torch.cat([output_f, self.location_embedding(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
             prob_moving = Bernoulli(logits=velocity_f[:, :1])
             prob_s = self.mix_distribution(velocity_f[:, 1:1 + (1 + 1 * 2) * self.n_mixture], LogNormal, 1)
             prob_omega = self.mix_distribution(velocity_f[:, 1 + (1 + 1 * 2) * self.n_mixture:], VonMises, 1)
@@ -160,8 +155,6 @@ class AutoregressiveTransformer(nn.Module):
             }
             loss_components = loss_fn(probs, gt)
             loss_select.append(loss_components)
-            if self.iters % 100 == 99:
-                print(f'loc: {pred_location.squeeze() * 40}')
 
         loss = {}
         for k in ['all', 'category', 'location', 'bbox', 'velocity']:
@@ -179,7 +172,8 @@ class AutoregressiveTransformer(nn.Module):
         self.eval()
         with torch.no_grad():
             category = samples["category"]  # (B, L)
-            location = samples["location"]
+            location = ((samples['location'] + 40) / 4).long()
+            location = location[:, 0] * 20 + location[:, 1]
             bbox = samples["bbox"]
             velocity = samples["velocity"]
             maps = samples["map"]
@@ -192,7 +186,7 @@ class AutoregressiveTransformer(nn.Module):
             # embed category
             category_f = self.category_embedding(category)
             # positional encoding for location
-            location_f = self.pe_location(location)
+            location_f = self.location_embedding(location)
             # positional encoding for bounding box
             bbox_f = self.pe_bbox(bbox)
             # positional encoding for velocity
@@ -201,16 +195,17 @@ class AutoregressiveTransformer(nn.Module):
             object_f = self.fc_object(torch.flatten(object_f, start_dim=0, end_dim=1)).reshape(B, L,
                                                                                                self.d_model)  # (B, L, d_model)
 
-            input_f = torch.cat([map_f[:, None, :],
-                                 self.q.expand(B, 1, self.d_model),
-                                 self.pe(object_f)],
-                                dim=1)  # (B, L + 2, d_model)
+            # input_f = torch.cat([map_f[:, None, :],
+            #                      self.q.expand(B, 1, self.d_model),
+            #                      self.pe(object_f)],
+            #                     dim=1)  # (B, L + 2, d_model)
 
             # Compute the features using causal masking
             length_mask = get_length_mask(lengths + 2)
-            output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
+            _, (output_f, _) = self.transformer_encoder(object_f)
             # take only the encoded q token
-            output_f = output_f[:, 1, :]  # (B, d_model)
+            # output_f = output_f[:, 1, :]  # (B, d_model)
+            output_f = output_f.squeeze(0)
 
             # predict category
             if condition['category'] is not None:
@@ -247,7 +242,7 @@ class AutoregressiveTransformer(nn.Module):
                 pred_location = condition['location']
             else:
                 location_f = decoder[0](output_f)
-                prob_location = self.mix_distribution(location_f, Normal, 2)
+                prob_location = Categorical(logits=location_f)
                 pred_location = prob_location.sample()
 
             if condition['bbox'] is not None:
@@ -256,7 +251,7 @@ class AutoregressiveTransformer(nn.Module):
                 pred_wl = condition['bbox']['wl']
                 pred_theta = condition['bbox']['theta']
             else:
-                bbox_f = decoder[1](torch.cat([output_f, self.pe_location(pred_location)], dim=-1))
+                bbox_f = decoder[1](torch.cat([output_f, self.location_embedding(pred_location)], dim=-1))
                 prob_wl = self.mix_distribution(bbox_f[:, :(1 + 2 * 2) * self.n_mixture], LogNormal, 2)
                 prob_theta = self.mix_distribution(bbox_f[:, (1 + 2 * 2) * self.n_mixture:], VonMises, 1)
                 pred_wl = prob_wl.sample()
@@ -272,7 +267,7 @@ class AutoregressiveTransformer(nn.Module):
                 pred_omega = condition['velocity']['omega']
             else:
                 velocity_f = decoder[2](
-                    torch.cat([output_f, self.pe_location(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
+                    torch.cat([output_f, self.location_embedding(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
                 prob_moving = Bernoulli(logits=velocity_f[:, :1])
                 prob_s = self.mix_distribution(velocity_f[:, 1:1 + (1 + 1 * 2) * self.n_mixture], LogNormal, 1)
                 prob_omega = self.mix_distribution(velocity_f[:, 1 + (1 + 1 * 2) * self.n_mixture:], VonMises, 1)

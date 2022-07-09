@@ -49,3 +49,9 @@ class WeightedNLL(nn.Module):
                                     loss_velocity)
         }
         return components
+
+
+def lr_func(warmup):
+    def inner(iters):
+        return min(iters**-0.5, iters * warmup**-1.5)
+    return inner

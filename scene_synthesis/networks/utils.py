@@ -5,11 +5,11 @@ import math
 
 
 class FixedPositionalEncoding(nn.Module):
-    def __init__(self, proj_dims, t_min=1, t_max=64):
+    def __init__(self, proj_dims):
         super().__init__()
-        ll = proj_dims // 2
-        exp = torch.linspace(np.log2(t_max), np.log2(t_min), ll)
-        exp = 2 ** exp
+        proj_dims = proj_dims // 2
+        exp = torch.linspace(0, 1, proj_dims)
+        exp = 0.1 ** exp
         self.sigma = 2 * np.pi / exp
 
     def forward(self, x):
@@ -17,6 +17,17 @@ class FixedPositionalEncoding(nn.Module):
             torch.sin(x[..., None] * self.sigma.to(x.device)),
             torch.cos(x[..., None] * self.sigma.to(x.device))
         ], dim=-1).flatten(start_dim=-2)
+
+
+class TrainablePE(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=1000):
+        super(TrainablePE, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        self.pe = nn.Parameter(torch.randn(max_len, d_model))
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(1)]
+        return self.dropout(x)
 
 
 class PositionalEncoding(nn.Module):

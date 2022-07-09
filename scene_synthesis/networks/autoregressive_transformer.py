@@ -9,7 +9,7 @@
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical, Bernoulli, Normal, LogNormal, VonMises, Independent, MixtureSameFamily
-from .utils import FixedPositionalEncoding, PositionalEncoding, get_mlp, get_length_mask
+from .utils import FixedPositionalEncoding, PositionalEncoding, TrainablePE, get_mlp, get_length_mask
 import numpy as np
 
 
@@ -38,8 +38,8 @@ class AutoregressiveTransformer(nn.Module):
         self.location_embedding = nn.Embedding(400, 128)
 
         # Positional encoding for other attributes
-        self.pe_bbox = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
-        self.pe_velocity = FixedPositionalEncoding(proj_dims=64, t_min=1 / 8, t_max=8)
+        self.pe_bbox = FixedPositionalEncoding(proj_dims=64)
+        self.pe_velocity = FixedPositionalEncoding(proj_dims=64)
 
         # map from object feature to transformer input
         self.fc_map = get_mlp(512, self.d_model)
@@ -49,7 +49,7 @@ class AutoregressiveTransformer(nn.Module):
         self.q = nn.Parameter(torch.randn(self.d_model))
 
         # positional encoding for transformer input
-        self.pe = PositionalEncoding(self.d_model)
+        self.pe = TrainablePE(self.d_model)
 
         # used for autoregressive decoding
         self.n_mixture = 10

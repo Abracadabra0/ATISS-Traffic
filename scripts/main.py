@@ -7,13 +7,14 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import LambdaLR
 from scene_synthesis.datasets.nuScenes import NuScenesDataset
 from scene_synthesis.datasets.utils import collate_train
 from scene_synthesis.networks.autoregressive_transformer import AutoregressiveTransformer
 from scene_synthesis.networks.feature_extractors import ResNet18
 from torch.optim import Adam
 import numpy as np
-from scene_synthesis.losses.nll import WeightedNLL
+from scene_synthesis.losses.nll import WeightedNLL, lr_func
 import time
 
 if __name__ == '__main__':
@@ -37,13 +38,13 @@ if __name__ == '__main__':
         'velocity': 0.8
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=5e-5)
+    optimizer = Adam(model.parameters(), lr=768**-0.5)
+    scheduler = LambdaLR(optimizer, lr_func(500))
     n_epochs = 3000
     iters = 0
 
     for epoch in range(n_epochs):
-        if epoch % 100 == 99:
-            print(f'----------------Epoch {epoch}----------------')
+        print(f'----------------Epoch {epoch}----------------')
         for samples, lengths, gt in dataloader:
             for k in samples:
                 samples[k] = samples[k].to(device)
@@ -53,13 +54,13 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
             loss = model(samples, lengths, gt, loss_fn)
-            if epoch % 100 == 99:
-                print(iters, loss['all'].item())
+            print(iters, loss['all'].item())
             writer.add_scalar('loss/loss', loss['all'].item(), iters)
             for k in ['category', 'location', 'bbox', 'velocity']:
                 writer.add_scalar(f'loss/{k}', loss[k].item(), iters)
             loss['all'].backward()
             optimizer.step()
+            scheduler.step()
             iters += 1
 
     model.cpu()

@@ -36,14 +36,21 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-def get_mlp(hidden_size, output_size):
+def get_mlp(hidden_size, output_size, n_layers=3):
     mlp_layers = [
         nn.Linear(hidden_size, 2 * hidden_size),
-        nn.ReLU(),
+        nn.ReLU()
+    ]
+    for _ in range(n_layers - 3):
+        mlp_layers.extend([
+            nn.Linear(2 * hidden_size, 2 * hidden_size),
+            nn.ReLU()
+        ])
+    mlp_layers.extend([
         nn.Linear(2 * hidden_size, hidden_size),
         nn.ReLU(),
         nn.Linear(hidden_size, output_size)
-    ]
+    ])
     return nn.Sequential(*mlp_layers)
 
 

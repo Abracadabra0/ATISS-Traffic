@@ -52,20 +52,22 @@ class AutoregressiveTransformer(nn.Module):
         self.pe = PositionalEncoding(self.d_model)
 
         # used for autoregressive decoding
-        self.n_mixture = 4
+        self.n_mixture = 10
         self.prob_category = get_mlp(self.d_model, 4)  # categorical distribution
 
         self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                                 get_mlp(self.d_model + 128,
                                                         (1 + 2 * 2) * self.n_mixture +
-                                                        (1 + 1 * 2) * self.n_mixture),  # bbox
+                                                        (1 + 1 * 2) * self.n_mixture,
+                                                        5),  # bbox
                                                 get_mlp(self.d_model + 64 * 5,
                                                         1 + (1 + 1 * 2) * self.n_mixture +
                                                         (1 + 1 * 2) * self.n_mixture))  # velocity
         self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                                get_mlp(self.d_model + 128,
                                                        (1 + 2 * 2) * self.n_mixture +
-                                                       (1 + 1 * 2) * self.n_mixture),  # bbox
+                                                       (1 + 1 * 2) * self.n_mixture,
+                                                       5),  # bbox
                                                get_mlp(self.d_model + 64 * 5,
                                                        1 + (1 + 1 * 2) * self.n_mixture +
                                                        (1 + 1 * 2) * self.n_mixture))  # velocity
@@ -73,7 +75,8 @@ class AutoregressiveTransformer(nn.Module):
         self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                              get_mlp(self.d_model + 128,
                                                      (1 + 2 * 2) * self.n_mixture +
-                                                     (1 + 1 * 2) * self.n_mixture),  # bbox
+                                                     (1 + 1 * 2) * self.n_mixture,
+                                                     5),  # bbox
                                              get_mlp(self.d_model + 64 * 5,
                                                      1 + (1 + 1 * 2) * self.n_mixture +
                                                      (1 + 1 * 2) * self.n_mixture))  # velocity
@@ -173,7 +176,7 @@ class AutoregressiveTransformer(nn.Module):
         with torch.no_grad():
             category = samples["category"]  # (B, L)
             location = ((samples['location'] + 40) / 4).long()
-            location = location[:, 0] * 20 + location[:, 1]
+            location = location[..., 0] * 20 + location[..., 1]
             bbox = samples["bbox"]
             velocity = samples["velocity"]
             maps = samples["map"]
@@ -283,7 +286,7 @@ class AutoregressiveTransformer(nn.Module):
             }
             preds = {
                 "category": pred_category,
-                "location": pred_location.squeeze(0) * 40,
+                "location": pred_location.squeeze(0),
                 "bbox": {"wl": pred_wl.squeeze(0), "theta": pred_theta.squeeze(0)},
                 "velocity": {"moving": pred_moving.squeeze(0), "s": pred_s.squeeze(0), "omega": pred_omega.squeeze(0)}
             }

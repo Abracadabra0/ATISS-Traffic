@@ -152,7 +152,7 @@ class AutoregressiveTransformer(nn.Module):
 
             bbox_f = decoder[1](torch.cat([
                 self.feature_dropout(output_f),
-                self.location_embedding(pred_location)
+                self.location_embedding(gt['location'])
             ], dim=-1))
             prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                             f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
@@ -166,8 +166,8 @@ class AutoregressiveTransformer(nn.Module):
 
             velocity_f = decoder[2](torch.cat([
                 self.feature_dropout(output_f),
-                self.location_embedding(pred_location),
-                self.pe_bbox(pred_bbox)
+                self.location_embedding(gt['location']),
+                self.pe_bbox(gt['bbox'])
             ], dim=-1))
             prob_moving = Bernoulli(logits=velocity_f[:, :1])
             prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],

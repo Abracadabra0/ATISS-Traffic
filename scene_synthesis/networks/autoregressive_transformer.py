@@ -61,7 +61,7 @@ class AutoregressiveTransformer(nn.Module):
                                                         2 * 2 * self.n_mixture +
                                                         1 * 2 * self.n_mixture,
                                                         n_layers=5),  # bbox
-                                                get_mlp(self.d_model + 128 + 64,
+                                                get_mlp(self.d_model + 128 + 192,
                                                         1 +
                                                         self.n_mixture +
                                                         1 * 2 * self.n_mixture +
@@ -72,7 +72,7 @@ class AutoregressiveTransformer(nn.Module):
                                                        2 * 2 * self.n_mixture +
                                                        1 * 2 * self.n_mixture,
                                                        n_layers=5),  # bbox
-                                               get_mlp(self.d_model + 128 + 64,
+                                               get_mlp(self.d_model + 128 + 192,
                                                        1 +
                                                        self.n_mixture +
                                                        1 * 2 * self.n_mixture +
@@ -84,7 +84,7 @@ class AutoregressiveTransformer(nn.Module):
                                                      2 * 2 * self.n_mixture +
                                                      1 * 2 * self.n_mixture,
                                                      n_layers=5),  # bbox
-                                             get_mlp(self.d_model + 128 + 64,
+                                             get_mlp(self.d_model + 128 + 192,
                                                      1 +
                                                      self.n_mixture +
                                                      1 * 2 * self.n_mixture +
@@ -170,11 +170,11 @@ class AutoregressiveTransformer(nn.Module):
                 self.pe_bbox(pred_bbox)
             ], dim=-1))
             prob_moving = Bernoulli(logits=velocity_f[:, :1])
-            prob_s = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+            prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                            f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
                                            distribution=LogNormal,
                                            event_shape=1)
-            prob_omega = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+            prob_omega = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
                                                distribution=VonMises,
                                                event_shape=1)
@@ -189,11 +189,23 @@ class AutoregressiveTransformer(nn.Module):
             loss_select.append(loss_components)
 
         loss = {}
-        for k in ['all', 'category', 'location', 'bbox', 'velocity']:
+        for k in ['all', 'category', 'location']:
             loss[k] = loss_select[0][k]
             loss[k] = torch.where(gt['category'] == 2, loss_select[1][k], loss[k])
             loss[k] = torch.where(gt['category'] == 3, loss_select[2][k], loss[k])
             loss[k] = loss[k].mean()
+        loss['bbox'] = {}
+        for k in ['all', 'wl', 'theta']:
+            loss['bbox'][k] = loss_select[0]['bbox'][k]
+            loss['bbox'][k] = torch.where(gt['category'] == 2, loss_select[1]['bbox'][k], loss['bbox'][k])
+            loss['bbox'][k] = torch.where(gt['category'] == 3, loss_select[2]['bbox'][k], loss['bbox'][k])
+            loss['bbox'][k] = loss['bbox'][k].mean()
+        loss['velocity'] = {}
+        for k in ['all', 'moving', 's', 'omega']:
+            loss['velocity'][k] = loss_select[0]['velocity'][k]
+            loss['velocity'][k] = torch.where(gt['category'] == 2, loss_select[1]['velocity'][k], loss['velocity'][k])
+            loss['velocity'][k] = torch.where(gt['category'] == 3, loss_select[2]['velocity'][k], loss['velocity'][k])
+            loss['velocity'][k] = loss['velocity'][k].mean()
 
         self.iters += 1
         return loss
@@ -310,11 +322,11 @@ class AutoregressiveTransformer(nn.Module):
                 velocity_f = decoder[2](
                     torch.cat([output_f, self.location_embedding(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
                 prob_moving = Bernoulli(logits=velocity_f[:, :1])
-                prob_s = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+                prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
                                                distribution=LogNormal,
                                                event_shape=1)
-                prob_omega = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+                prob_omega = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                    f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
                                                    distribution=VonMises,
                                                    event_shape=1)

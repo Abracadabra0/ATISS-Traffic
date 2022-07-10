@@ -21,16 +21,16 @@ class WeightedNLL(nn.Module):
         loss_location = -probs['location'].log_prob(loc)
         loss_location = torch.where(gt['category'] == 0,
                                     torch.tensor(0., device=device),
-                                    loss_location).mean(),
+                                    loss_location)
 
         loss_wl = -probs['bbox']['wl'].log_prob(gt['bbox'][:, :2] + self._eps)
         loss_wl = torch.where(gt['category'] == 0,
                               torch.tensor(0., device=device),
-                              loss_wl).mean()
+                              loss_wl)
         loss_theta = -probs['bbox']['theta'].log_prob(gt['bbox'][:, 2:])
         loss_theta = torch.where(gt['category'] == 0,
                                  torch.tensor(0., device=device),
-                                 loss_theta).mean()
+                                 loss_theta)
 
         loss_s = -probs['velocity']['s'].log_prob(gt['velocity'][:, :1] + self._eps)
         loss_s = torch.where(gt['velocity'][:, 0] == 0,
@@ -38,20 +38,20 @@ class WeightedNLL(nn.Module):
                              loss_s)
         loss_s = torch.where(gt['category'] == 0,
                              torch.tensor(0., device=device),
-                             loss_s).mean()
+                             loss_s)
         loss_omega = -probs['velocity']['omega'].log_prob(gt['velocity'][:, 1:])
         loss_omega = torch.where(gt['velocity'][:, 0] == 0,
                                  torch.tensor(0., device=device),
                                  loss_omega)
         loss_omega = torch.where(gt['category'] == 0,
                                  torch.tensor(0., device=device),
-                                 loss_omega).mean()
+                                 loss_omega)
         loss_moving = torch.where(gt['velocity'][:, 0] == 0,
                                   -probs['velocity']['moving'].log_prob(torch.tensor(0., device=device)).squeeze(),
                                   -probs['velocity']['moving'].log_prob(torch.tensor(1., device=device)).squeeze())
         loss_moving = torch.where(gt['category'] == 0,
                                   torch.tensor(0., device=device),
-                                  loss_moving).mean()
+                                  loss_moving)
 
         loss = loss_category * self.weights['category'] + \
                loss_location * self.weights['location'] + \

@@ -57,36 +57,46 @@ class AutoregressiveTransformer(nn.Module):
 
         self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                                 get_mlp(self.d_model + 128,
-                                                        (1 + 2 * 2) * self.n_mixture +
-                                                        (1 + 1 * 2) * self.n_mixture,
-                                                        5),  # bbox
-                                                get_mlp(self.d_model + 64 * 5,
-                                                        1 + (1 + 1 * 2) * self.n_mixture +
-                                                        (1 + 1 * 2) * self.n_mixture))  # velocity
+                                                        self.n_mixture +
+                                                        2 * 2 * self.n_mixture +
+                                                        1 * 2 * self.n_mixture,
+                                                        n_layers=5),  # bbox
+                                                get_mlp(self.d_model + 128 + 64,
+                                                        1 +
+                                                        self.n_mixture +
+                                                        1 * 2 * self.n_mixture +
+                                                        1 * 2 * self.n_mixture))  # velocity
         self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                                get_mlp(self.d_model + 128,
-                                                       (1 + 2 * 2) * self.n_mixture +
-                                                       (1 + 1 * 2) * self.n_mixture,
-                                                       5),  # bbox
-                                               get_mlp(self.d_model + 64 * 5,
-                                                       1 + (1 + 1 * 2) * self.n_mixture +
-                                                       (1 + 1 * 2) * self.n_mixture))  # velocity
+                                                       self.n_mixture +
+                                                       2 * 2 * self.n_mixture +
+                                                       1 * 2 * self.n_mixture,
+                                                       n_layers=5),  # bbox
+                                               get_mlp(self.d_model + 128 + 64,
+                                                       1 +
+                                                       self.n_mixture +
+                                                       1 * 2 * self.n_mixture +
+                                                       1 * 2 * self.n_mixture))  # velocity
 
         self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                              get_mlp(self.d_model + 128,
-                                                     (1 + 2 * 2) * self.n_mixture +
-                                                     (1 + 1 * 2) * self.n_mixture,
-                                                     5),  # bbox
-                                             get_mlp(self.d_model + 64 * 5,
-                                                     1 + (1 + 1 * 2) * self.n_mixture +
-                                                     (1 + 1 * 2) * self.n_mixture))  # velocity
+                                                     self.n_mixture +
+                                                     2 * 2 * self.n_mixture +
+                                                     1 * 2 * self.n_mixture,
+                                                     n_layers=5),  # bbox
+                                             get_mlp(self.d_model + 128 + 64,
+                                                     1 +
+                                                     self.n_mixture +
+                                                     1 * 2 * self.n_mixture +
+                                                     1 * 2 * self.n_mixture))  # velocity
+        self.feature_dropout = nn.Dropout(p=0.2)
         self.iters = 0
 
-    def mix_distribution(self, f, distribution, event_shape):
+    def mix_distribution(self, mixture, f, distribution, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
         B = f.shape[0]
-        mixture = Categorical(logits=f[:, :self.n_mixture])
-        prob = f[:, self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
+        mixture = Categorical(logits=mixture)
+        prob = f.reshape(B, self.n_mixture, 2 * event_shape)
         prob = distribution(prob[..., :event_shape], torch.sigmoid(prob[..., event_shape:]) * 0.5)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
@@ -119,7 +129,7 @@ class AutoregressiveTransformer(nn.Module):
                                                                                            self.d_model)  # (B, L, d_model)
 
         input_f = torch.cat([self.q.expand(B, 1, self.d_model),
-                             object_f],
+                             self.pe(object_f)],
                             dim=1)  # (B, L + 2, d_model)
 
         # Compute the features using causal masking
@@ -140,15 +150,34 @@ class AutoregressiveTransformer(nn.Module):
             prob_location = Categorical(logits=location_f)
             pred_location = prob_location.sample()
 
-            bbox_f = decoder[1](torch.cat([output_f, self.location_embedding(pred_location)], dim=-1))
-            prob_wl = self.mix_distribution(bbox_f[:, :(1 + 2 * 2) * self.n_mixture], LogNormal, 2)
-            prob_theta = self.mix_distribution(bbox_f[:, (1 + 2 * 2) * self.n_mixture:], VonMises, 1)
+            bbox_f = decoder[1](torch.cat([
+                self.feature_dropout(output_f),
+                self.location_embedding(pred_location)
+            ], dim=-1))
+            prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
+                                            f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
+                                            distribution=LogNormal,
+                                            event_shape=2)
+            prob_theta = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
+                                               f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
+                                               distribution=VonMises,
+                                               event_shape=1)
             pred_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()], dim=-1)
 
-            velocity_f = decoder[2](torch.cat([output_f, self.location_embedding(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
+            velocity_f = decoder[2](torch.cat([
+                self.feature_dropout(output_f),
+                self.location_embedding(pred_location),
+                self.pe_bbox(pred_bbox)
+            ], dim=-1))
             prob_moving = Bernoulli(logits=velocity_f[:, :1])
-            prob_s = self.mix_distribution(velocity_f[:, 1:1 + (1 + 1 * 2) * self.n_mixture], LogNormal, 1)
-            prob_omega = self.mix_distribution(velocity_f[:, 1 + (1 + 1 * 2) * self.n_mixture:], VonMises, 1)
+            prob_s = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+                                           f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
+                                           distribution=LogNormal,
+                                           event_shape=1)
+            prob_omega = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+                                               f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
+                                               distribution=VonMises,
+                                               event_shape=1)
 
             probs = {
                 "category": prob_category,
@@ -254,9 +283,18 @@ class AutoregressiveTransformer(nn.Module):
                 pred_wl = condition['bbox']['wl']
                 pred_theta = condition['bbox']['theta']
             else:
-                bbox_f = decoder[1](torch.cat([output_f, self.location_embedding(pred_location)], dim=-1))
-                prob_wl = self.mix_distribution(bbox_f[:, :(1 + 2 * 2) * self.n_mixture], LogNormal, 2)
-                prob_theta = self.mix_distribution(bbox_f[:, (1 + 2 * 2) * self.n_mixture:], VonMises, 1)
+                bbox_f = decoder[1](torch.cat([
+                    output_f,
+                    self.location_embedding(pred_location)
+                ], dim=-1))
+                prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
+                                                f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
+                                                distribution=LogNormal,
+                                                event_shape=2)
+                prob_theta = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
+                                                   f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
+                                                   distribution=VonMises,
+                                                   event_shape=1)
                 pred_wl = prob_wl.sample()
                 pred_theta = prob_theta.sample()
             pred_bbox = torch.cat([pred_wl, pred_theta], dim=-1)
@@ -272,8 +310,14 @@ class AutoregressiveTransformer(nn.Module):
                 velocity_f = decoder[2](
                     torch.cat([output_f, self.location_embedding(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
                 prob_moving = Bernoulli(logits=velocity_f[:, :1])
-                prob_s = self.mix_distribution(velocity_f[:, 1:1 + (1 + 1 * 2) * self.n_mixture], LogNormal, 1)
-                prob_omega = self.mix_distribution(velocity_f[:, 1 + (1 + 1 * 2) * self.n_mixture:], VonMises, 1)
+                prob_s = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+                                               f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
+                                               distribution=LogNormal,
+                                               event_shape=1)
+                prob_omega = self.mix_distribution(mixture=velocity_f[:, 1 + self.n_mixture],
+                                                   f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
+                                                   distribution=VonMises,
+                                                   event_shape=1)
                 pred_moving = prob_moving.sample()
                 pred_s = prob_s.sample()
                 pred_omega = prob_omega.sample()

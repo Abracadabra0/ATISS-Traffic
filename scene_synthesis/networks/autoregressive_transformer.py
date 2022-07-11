@@ -8,6 +8,7 @@
 
 import torch
 import torch.nn as nn
+import torch.functional as f
 from torch.distributions import Categorical, Bernoulli, Normal, LogNormal, VonMises, Independent, MixtureSameFamily
 from .utils import FixedPositionalEncoding, PositionalEncoding, TrainablePE, get_mlp, get_length_mask
 import numpy as np
@@ -99,11 +100,11 @@ class AutoregressiveTransformer(nn.Module):
         B = f.shape[0]
         mixture = Categorical(logits=mixture)
         prob = f.reshape(B, self.n_mixture, 2 * event_shape)
-        assert std_func in ['sigmoid', 'exp']
+        assert std_func in ['sigmoid', 'softplus']
         if std_func == 'sigmoid':
             std = torch.sigmoid(prob[..., event_shape:]) * std_factor
         else:
-            std = torch.exp(prob[..., event_shape:]) * std_factor
+            std = f.softplus(prob[..., event_shape:]) * std_factor
         prob = distribution(prob[..., :event_shape], std)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
@@ -171,7 +172,7 @@ class AutoregressiveTransformer(nn.Module):
                                                f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
                                                distribution=VonMises,
                                                event_shape=1,
-                                               std_func='exp',
+                                               std_func='softplus',
                                                std_factor=2)
             pred_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()], dim=-1)
 
@@ -191,37 +192,27 @@ class AutoregressiveTransformer(nn.Module):
                                                f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
                                                distribution=VonMises,
                                                event_shape=1,
-                                               std_func='exp',
+                                               std_func='softplus',
                                                std_factor=2)
 
             probs = {
                 "category": prob_category,
                 "location": prob_location,
-                "bbox": {"wl": prob_wl, "theta": prob_theta},
-                "velocity": {"moving": prob_moving, "s": prob_s, "omega": prob_omega}
+                "wl": prob_wl,
+                "theta": prob_theta,
+                "moving": prob_moving,
+                "s": prob_s,
+                "omega": prob_omega
             }
             loss_components = loss_fn(probs, gt)
             loss_select.append(loss_components)
 
         loss = {}
-        for k in ['all', 'category', 'location']:
+        for k in ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']:
             loss[k] = loss_select[0][k]
             loss[k] = torch.where(gt['category'] == 2, loss_select[1][k], loss[k])
             loss[k] = torch.where(gt['category'] == 3, loss_select[2][k], loss[k])
             loss[k] = loss[k].mean()
-        loss['bbox'] = {}
-        for k in ['all', 'wl', 'theta']:
-            loss['bbox'][k] = loss_select[0]['bbox'][k]
-            loss['bbox'][k] = torch.where(gt['category'] == 2, loss_select[1]['bbox'][k], loss['bbox'][k])
-            loss['bbox'][k] = torch.where(gt['category'] == 3, loss_select[2]['bbox'][k], loss['bbox'][k])
-            loss['bbox'][k] = loss['bbox'][k].mean()
-        loss['velocity'] = {}
-        for k in ['all', 'moving', 's', 'omega']:
-            loss['velocity'][k] = loss_select[0]['velocity'][k]
-            loss['velocity'][k] = torch.where(gt['category'] == 2, loss_select[1]['velocity'][k], loss['velocity'][k])
-            loss['velocity'][k] = torch.where(gt['category'] == 3, loss_select[2]['velocity'][k], loss['velocity'][k])
-            loss['velocity'][k] = loss['velocity'][k].mean()
-
         self.iters += 1
         return loss
 
@@ -279,14 +270,20 @@ class AutoregressiveTransformer(nn.Module):
                 probs = {
                     "category": prob_category,
                     "location": None,
-                    "bbox": {"wl": None, "theta": None},
-                    "velocity": {"moving": None, "s": None, "omega": None}
+                    "wl": None,
+                    "theta": None,
+                    "moving": None,
+                    "s": None,
+                    "omega": None
                 }
                 preds = {
                     "category": pred_category,
                     "location": None,
-                    "bbox": {"wl": None, "theta": None},
-                    "velocity": {"moving": None, "s": None, "omega": None}
+                    "wl": None,
+                    "theta": None,
+                    "moving": None,
+                    "s": None,
+                    "omega": None
                 }
                 return preds, probs
             elif pred_category == 1:
@@ -324,7 +321,7 @@ class AutoregressiveTransformer(nn.Module):
                                                    f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
                                                    distribution=VonMises,
                                                    event_shape=1,
-                                                   std_func='exp',
+                                                   std_func='softplus',
                                                    std_factor=2)
                 pred_wl = prob_wl.sample()
                 pred_theta = prob_theta.sample()
@@ -351,7 +348,7 @@ class AutoregressiveTransformer(nn.Module):
                                                    f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
                                                    distribution=VonMises,
                                                    event_shape=1,
-                                                   std_func='exp',
+                                                   std_func='softplus',
                                                    std_factor=2)
                 pred_moving = prob_moving.sample()
                 pred_s = prob_s.sample()
@@ -360,35 +357,19 @@ class AutoregressiveTransformer(nn.Module):
             probs = {
                 "category": prob_category,
                 "location": prob_location,
-                "bbox": {"wl": prob_wl, "theta": prob_theta},
-                "velocity": {"moving": prob_moving, "s": prob_s, "omega": prob_omega}
+                "wl": prob_wl,
+                "theta": prob_theta,
+                "moving": prob_moving,
+                "s": prob_s,
+                "omega": prob_omega
             }
             preds = {
                 "category": pred_category,
                 "location": pred_location.squeeze(0),
-                "bbox": {"wl": pred_wl.squeeze(0), "theta": pred_theta.squeeze(0)},
-                "velocity": {"moving": pred_moving.squeeze(0), "s": pred_s.squeeze(0), "omega": pred_omega.squeeze(0)}
+                "wl": pred_wl.squeeze(0),
+                "theta": pred_theta.squeeze(0),
+                "moving": pred_moving.squeeze(0),
+                "s": pred_s.squeeze(0),
+                "omega": pred_omega.squeeze(0)
             }
             return preds, probs
-
-
-def train_on_batch(model, optimizer, sample_params, config):
-    # Make sure that everything has the correct size
-    optimizer.zero_grad()
-    X_pred = model(sample_params)
-    # Compute the loss
-    loss = X_pred.reconstruction_loss(sample_params, sample_params["lengths"])
-    # Do the backpropagation
-    loss.backward()
-    # Do the update
-    optimizer.step()
-
-    return loss.item()
-
-
-@torch.no_grad()
-def validate_on_batch(model, sample_params, config):
-    X_pred = model(sample_params)
-    # Compute the loss
-    loss = X_pred.reconstruction_loss(sample_params, sample_params["lengths"])
-    return loss.item()

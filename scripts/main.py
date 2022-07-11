@@ -35,10 +35,10 @@ if __name__ == '__main__':
         'category': 0.2,
         'location': 1.,
         'wl': 0.6,
-        'theta': 0.6,
+        'theta': 1.2,
         'moving': 0.3,
         's': 0.3,
-        'omega': 0.3
+        'omega': 0.6
     })
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)
@@ -57,16 +57,10 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
             loss = model(samples, lengths, gt, loss_fn)
-            print(iters, loss['all'].item())
-            scalar_dict = {}
+
             for k, v in loss.items():
-                if isinstance(v, torch.Tensor):
-                    scalar_dict[k] = v.item()
-                else:
-                    scalar_dict[k] = v['all'].item()
-            writer.add_scalars('loss/loss', scalar_dict, iters)
-            for k in ['bbox', 'velocity']:
-                writer.add_scalars(f'loss/{k}', loss[k], iters)
+                print(f"{k}: {v.item()}")
+                writer.add_scalar(f'loss/{k}', v, iters)
             loss['all'].backward()
             optimizer.step()
             scheduler.step()

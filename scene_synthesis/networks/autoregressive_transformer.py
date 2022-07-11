@@ -97,7 +97,7 @@ class AutoregressiveTransformer(nn.Module):
         B = f.shape[0]
         mixture = Categorical(logits=mixture)
         prob = f.reshape(B, self.n_mixture, 2 * event_shape)
-        prob = distribution(prob[..., :event_shape], torch.sigmoid(prob[..., event_shape:]) * 0.5)  # batch_shape = (B, n_mixture, event_shape)
+        prob = distribution(prob[..., :event_shape], torch.exp(prob[..., event_shape:]))  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
         return prob
@@ -151,8 +151,8 @@ class AutoregressiveTransformer(nn.Module):
             pred_location = prob_location.sample()
 
             bbox_f = decoder[1](torch.cat([
-                self.feature_dropout(output_f),
-                self.location_embedding(gt['location'])
+                output_f,
+                self.location_embedding(pred_location)
             ], dim=-1))
             prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                             f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
@@ -166,8 +166,8 @@ class AutoregressiveTransformer(nn.Module):
 
             velocity_f = decoder[2](torch.cat([
                 self.feature_dropout(output_f),
-                self.location_embedding(gt['location']),
-                self.pe_bbox(gt['bbox'])
+                self.location_embedding(pred_location),
+                self.pe_bbox(pred_bbox)
             ], dim=-1))
             prob_moving = Bernoulli(logits=velocity_f[:, :1])
             prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],

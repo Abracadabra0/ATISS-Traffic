@@ -53,46 +53,40 @@ class AutoregressiveTransformer(nn.Module):
         self.pe = TrainablePE(self.d_model)
 
         # used for autoregressive decoding
-        self.n_mixture = 10
+        self.n_mixture = 5
         self.prob_category = get_mlp(self.d_model, 4)  # categorical distribution
 
         self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                                get_mlp(128,
+                                                get_mlp(self.n_mixture + 128,
                                                         self.n_mixture +
                                                         2 * 2 * self.n_mixture +
-                                                        1 * 2 * self.n_mixture,
-                                                        n_layers=5),  # bbox
-                                                get_mlp(128 + 192,
+                                                        1 * 2 * self.n_mixture),  # bbox
+                                                get_mlp(self.n_mixture + 128 + 192,
                                                         1 +
                                                         self.n_mixture +
                                                         1 * 2 * self.n_mixture +
-                                                        1 * 2 * self.n_mixture,
-                                                        n_layers=5))  # velocity
+                                                        1 * 2 * self.n_mixture))  # velocity
         self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                               get_mlp(128,
+                                               get_mlp(self.n_mixture + 128,
                                                        self.n_mixture +
                                                        2 * 2 * self.n_mixture +
-                                                       1 * 2 * self.n_mixture,
-                                                       n_layers=5),  # bbox
-                                               get_mlp(128 + 192,
+                                                       1 * 2 * self.n_mixture),  # bbox
+                                               get_mlp(self.n_mixture + 128 + 192,
                                                        1 +
                                                        self.n_mixture +
                                                        1 * 2 * self.n_mixture +
-                                                       1 * 2 * self.n_mixture,
-                                                       n_layers=5))  # velocity
+                                                       1 * 2 * self.n_mixture))  # velocity
 
         self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                             get_mlp(128,
+                                             get_mlp(self.n_mixture + 128,
                                                      self.n_mixture +
                                                      2 * 2 * self.n_mixture +
-                                                     1 * 2 * self.n_mixture,
-                                                     n_layers=5),  # bbox
-                                             get_mlp(128 + 192,
+                                                     1 * 2 * self.n_mixture),  # bbox
+                                             get_mlp(self.n_mixture + 128 + 192,
                                                      1 +
                                                      self.n_mixture +
                                                      1 * 2 * self.n_mixture +
-                                                     1 * 2 * self.n_mixture,
-                                                     n_layers=5))  # velocity
+                                                     1 * 2 * self.n_mixture))  # velocity
         self.iters = 0
         self.logger = logger
         self.flag = None
@@ -139,11 +133,12 @@ class AutoregressiveTransformer(nn.Module):
                                                                                            self.d_model)  # (B, L, d_model)
 
         input_f = torch.cat([self.q.expand(B, 1, self.d_model),
+                             map_f,
                              self.pe(object_f)],
                             dim=1)  # (B, L + 2, d_model)
 
         # Compute the features using causal masking
-        length_mask = get_length_mask(lengths + 1)
+        length_mask = get_length_mask(lengths + 2)
         # _, (output_f, _) = self.transformer_encoder(object_f)
         output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
         # output_f = output_f.squeeze(0)
@@ -161,6 +156,7 @@ class AutoregressiveTransformer(nn.Module):
             pred_location = prob_location.sample()
 
             bbox_f = decoder[1](torch.cat([
+                output_f,
                 self.location_embedding(pred_location)
             ], dim=-1))
             if decoder == self.decoder_vehicle:
@@ -180,6 +176,7 @@ class AutoregressiveTransformer(nn.Module):
             pred_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()], dim=-1)
 
             velocity_f = decoder[2](torch.cat([
+                output_f,
                 self.location_embedding(pred_location),
                 self.pe_bbox(pred_bbox)
             ], dim=-1))
@@ -244,11 +241,12 @@ class AutoregressiveTransformer(nn.Module):
                                                                                                self.d_model)  # (B, L, d_model)
 
             input_f = torch.cat([self.q.expand(B, 1, self.d_model),
+                                 map_f,
                                  self.pe(object_f)],
                                 dim=1)  # (B, L + 2, d_model)
 
             # Compute the features using causal masking
-            length_mask = get_length_mask(lengths + 1)
+            length_mask = get_length_mask(lengths + 2)
             output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
             # _, (output_f, _) = self.transformer_encoder(object_f)
             # take only the encoded q token
@@ -306,6 +304,7 @@ class AutoregressiveTransformer(nn.Module):
                 pred_theta = condition['bbox']['theta']
             else:
                 bbox_f = decoder[1](torch.cat([
+                    output_f,
                     self.location_embedding(pred_location)
                 ], dim=-1))
                 prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
@@ -330,6 +329,7 @@ class AutoregressiveTransformer(nn.Module):
             else:
                 velocity_f = decoder[2](
                     torch.cat([
+                        output_f,
                         self.location_embedding(pred_location),
                         self.pe_bbox(pred_bbox)
                     ], dim=-1))

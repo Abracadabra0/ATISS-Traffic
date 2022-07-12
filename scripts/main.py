@@ -35,10 +35,10 @@ if __name__ == '__main__':
         'category': 0.2,
         'location': 1.,
         'wl': 0.6,
-        'theta': 1.2,
-        'moving': 0.3,
-        's': 0.3,
-        'omega': 0.6
+        'theta': 0.3,
+        'moving': 0.4,
+        's': 0.4,
+        'omega': 0.2
     })
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)

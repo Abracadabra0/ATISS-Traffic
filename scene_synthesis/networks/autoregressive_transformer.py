@@ -8,7 +8,7 @@
 
 import torch
 import torch.nn as nn
-import torch.functional as f
+import torch.nn.functional as F
 from torch.distributions import Categorical, Bernoulli, Normal, LogNormal, VonMises, Independent, MixtureSameFamily
 from .utils import FixedPositionalEncoding, PositionalEncoding, TrainablePE, get_mlp, get_length_mask
 import numpy as np
@@ -95,16 +95,12 @@ class AutoregressiveTransformer(nn.Module):
                                                      n_layers=5))  # velocity
         self.iters = 0
 
-    def mix_distribution(self, mixture, f, distribution, event_shape, std_func, std_factor):
+    def mix_distribution(self, mixture, f, distribution, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
         B = f.shape[0]
         mixture = Categorical(logits=mixture)
         prob = f.reshape(B, self.n_mixture, 2 * event_shape)
-        assert std_func in ['sigmoid', 'softplus']
-        if std_func == 'sigmoid':
-            std = torch.sigmoid(prob[..., event_shape:]) * std_factor
-        else:
-            std = f.softplus(prob[..., event_shape:]) * std_factor
+        std = torch.exp(prob[..., event_shape:] * 0.3)
         prob = distribution(prob[..., :event_shape], std)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
@@ -165,15 +161,11 @@ class AutoregressiveTransformer(nn.Module):
             prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                             f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
                                             distribution=LogNormal,
-                                            event_shape=2,
-                                            std_func='sigmoid',
-                                            std_factor=0.5)
+                                            event_shape=2)
             prob_theta = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                                f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
                                                distribution=VonMises,
-                                               event_shape=1,
-                                               std_func='softplus',
-                                               std_factor=2)
+                                               event_shape=1)
             pred_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()], dim=-1)
 
             velocity_f = decoder[2](torch.cat([
@@ -185,15 +177,11 @@ class AutoregressiveTransformer(nn.Module):
             prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                            f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
                                            distribution=LogNormal,
-                                           event_shape=1,
-                                           std_func='sigmoid',
-                                           std_factor=0.5)
+                                           event_shape=1)
             prob_omega = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
                                                distribution=VonMises,
-                                               event_shape=1,
-                                               std_func='softplus',
-                                               std_factor=2)
+                                               event_shape=1)
 
             probs = {
                 "category": prob_category,
@@ -314,15 +302,11 @@ class AutoregressiveTransformer(nn.Module):
                 prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                                 f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
                                                 distribution=LogNormal,
-                                                event_shape=2,
-                                                std_func='sigmoid',
-                                                std_factor=0.5)
+                                                event_shape=2)
                 prob_theta = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                                    f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
                                                    distribution=VonMises,
-                                                   event_shape=1,
-                                                   std_func='softplus',
-                                                   std_factor=2)
+                                                   event_shape=1)
                 pred_wl = prob_wl.sample()
                 pred_theta = prob_theta.sample()
             pred_bbox = torch.cat([pred_wl, pred_theta], dim=-1)
@@ -341,15 +325,11 @@ class AutoregressiveTransformer(nn.Module):
                 prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
                                                distribution=LogNormal,
-                                               event_shape=1,
-                                               std_func='sigmoid',
-                                               std_factor=0.5)
+                                               event_shape=1)
                 prob_omega = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                    f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
                                                    distribution=VonMises,
-                                                   event_shape=1,
-                                                   std_func='softplus',
-                                                   std_factor=2)
+                                                   event_shape=1)
                 pred_moving = prob_moving.sample()
                 pred_s = prob_s.sample()
                 pred_omega = prob_omega.sample()

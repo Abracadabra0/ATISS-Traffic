@@ -15,7 +15,7 @@ import numpy as np
 
 
 class AutoregressiveTransformer(nn.Module):
-    def __init__(self, feature_extractor):
+    def __init__(self, feature_extractor, logger):
         super().__init__()
         # Build a transformer encoder
         self.transformer_encoder = nn.Transformer(
@@ -57,24 +57,24 @@ class AutoregressiveTransformer(nn.Module):
         self.prob_category = get_mlp(self.d_model, 4)  # categorical distribution
 
         self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                                get_mlp(self.d_model + 128,
+                                                get_mlp(128,
                                                         self.n_mixture +
                                                         2 * 2 * self.n_mixture +
                                                         1 * 2 * self.n_mixture,
                                                         n_layers=5),  # bbox
-                                                get_mlp(self.d_model + 128 + 192,
+                                                get_mlp(128 + 192,
                                                         1 +
                                                         self.n_mixture +
                                                         1 * 2 * self.n_mixture +
                                                         1 * 2 * self.n_mixture,
                                                         n_layers=5))  # velocity
         self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                               get_mlp(self.d_model + 128,
+                                               get_mlp(128,
                                                        self.n_mixture +
                                                        2 * 2 * self.n_mixture +
                                                        1 * 2 * self.n_mixture,
                                                        n_layers=5),  # bbox
-                                               get_mlp(self.d_model + 128 + 192,
+                                               get_mlp(128 + 192,
                                                        1 +
                                                        self.n_mixture +
                                                        1 * 2 * self.n_mixture +
@@ -82,18 +82,20 @@ class AutoregressiveTransformer(nn.Module):
                                                        n_layers=5))  # velocity
 
         self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                             get_mlp(self.d_model + 128,
+                                             get_mlp(128,
                                                      self.n_mixture +
                                                      2 * 2 * self.n_mixture +
                                                      1 * 2 * self.n_mixture,
                                                      n_layers=5),  # bbox
-                                             get_mlp(self.d_model + 128 + 192,
+                                             get_mlp(128 + 192,
                                                      1 +
                                                      self.n_mixture +
                                                      1 * 2 * self.n_mixture +
                                                      1 * 2 * self.n_mixture,
                                                      n_layers=5))  # velocity
         self.iters = 0
+        self.logger = logger
+        self.flag = None
 
     def mix_distribution(self, mixture, f, distribution, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
@@ -101,6 +103,10 @@ class AutoregressiveTransformer(nn.Module):
         mixture = Categorical(logits=mixture)
         prob = f.reshape(B, self.n_mixture, 2 * event_shape)
         std = torch.exp(prob[..., event_shape:] * 0.3)
+        if self.flag == "wl":
+            self.logger.add_scalar("std/wl", std, self.iters)
+        elif self.flag == "theta":
+            self.logger.add_scalar("std/theta", std, self.iters)
         prob = distribution(prob[..., :event_shape], std)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
@@ -155,21 +161,25 @@ class AutoregressiveTransformer(nn.Module):
             pred_location = prob_location.sample()
 
             bbox_f = decoder[1](torch.cat([
-                output_f,
                 self.location_embedding(pred_location)
             ], dim=-1))
+            if decoder == self.decoder_vehicle:
+                self.flag = "wl"
             prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                             f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
                                             distribution=LogNormal,
                                             event_shape=2)
+            if decoder == self.decoder_vehicle:
+                self.flag = "theta"
             prob_theta = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
                                                f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
                                                distribution=VonMises,
                                                event_shape=1)
+            if decoder == self.decoder_vehicle:
+                self.flag = None
             pred_bbox = torch.cat([prob_wl.sample(), prob_theta.sample()], dim=-1)
 
             velocity_f = decoder[2](torch.cat([
-                output_f,
                 self.location_embedding(pred_location),
                 self.pe_bbox(pred_bbox)
             ], dim=-1))
@@ -296,7 +306,6 @@ class AutoregressiveTransformer(nn.Module):
                 pred_theta = condition['bbox']['theta']
             else:
                 bbox_f = decoder[1](torch.cat([
-                    output_f,
                     self.location_embedding(pred_location)
                 ], dim=-1))
                 prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
@@ -320,7 +329,10 @@ class AutoregressiveTransformer(nn.Module):
                 pred_omega = condition['velocity']['omega']
             else:
                 velocity_f = decoder[2](
-                    torch.cat([output_f, self.location_embedding(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
+                    torch.cat([
+                        self.location_embedding(pred_location),
+                        self.pe_bbox(pred_bbox)
+                    ], dim=-1))
                 prob_moving = Bernoulli(logits=velocity_f[:, :1])
                 prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],

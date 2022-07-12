@@ -29,7 +29,7 @@ if __name__ == '__main__':
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_train)
     feature_extractor = ResNet18(4, 512)
     feature_extractor.to(device)
-    model = AutoregressiveTransformer(feature_extractor)
+    model = AutoregressiveTransformer(feature_extractor, writer)
     model.to(device)
     loss_fn = WeightedNLL(weights={
         'category': 0.2,

@@ -32,18 +32,18 @@ if __name__ == '__main__':
     model = AutoregressiveTransformer(feature_extractor, writer)
     model.to(device)
     loss_fn = WeightedNLL(weights={
-        'category': 0.6,
+        'category': 0.2,
         'location': 1.,
-        'wl': 0.2,
-        'theta': 0.1,
-        'moving': 0.4,
-        's': 0.4,
-        'omega': 0.1
+        'wl': 0.,
+        'theta': 0.,
+        'moving': 0.,
+        's': 0.,
+        'omega': 0.
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.2)
-    scheduler = LambdaLR(optimizer, lr_func(1000))
-    n_epochs = 10000
+    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)
+    scheduler = LambdaLR(optimizer, lr_func(500))
+    n_epochs = 3000
     iters = 0
 
     for epoch in range(n_epochs):

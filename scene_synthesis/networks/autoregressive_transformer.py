@@ -94,9 +94,9 @@ class AutoregressiveTransformer(nn.Module):
     def mix_distribution(self, f, distribution, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
         B = f.shape[0]
-        mixture = Categorical(logits=f[:, :self.n_mixture])
-        prob = f[:, self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
-        prob = distribution(prob[..., :event_shape], torch.sigmoid(prob[..., event_shape:]) * 0.5)  # batch_shape = (B, n_mixture, event_shape)
+        mixture = Categorical(logits=mixture)
+        prob = f.reshape(B, self.n_mixture, 2 * event_shape)
+        prob = distribution(prob[..., :event_shape], torch.exp(prob[..., event_shape:] * 0.3) * 0.5)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
         return prob

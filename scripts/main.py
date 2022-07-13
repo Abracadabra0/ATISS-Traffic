@@ -34,11 +34,11 @@ if __name__ == '__main__':
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
         'location': 1.,
-        'wl': 0.,
-        'theta': 0.,
-        'moving': 0.,
-        's': 0.,
-        'omega': 0.
+        'wl': 1.2,
+        'theta': 1.2,
+        'moving': 0.8,
+        's': 0.8,
+        'omega': 0.8
     })
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)

@@ -29,21 +29,21 @@ if __name__ == '__main__':
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_train)
     feature_extractor = ResNet18(4, 512)
     feature_extractor.to(device)
-    model = AutoregressiveTransformer(feature_extractor, writer)
+    model = AutoregressiveTransformer(feature_extractor)
     model.to(device)
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
         'location': 1.,
-        'wl': 1.2,
-        'theta': 1.2,
-        'moving': 0.8,
-        's': 0.8,
-        'omega': 0.8
+        'wl': 0.6,
+        'theta': 0.6,
+        'moving': 0.3,
+        's': 0.3,
+        'omega': 0.3
     })
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)
-    scheduler = LambdaLR(optimizer, lr_func(500))
-    n_epochs = 3000
+    scheduler = LambdaLR(optimizer, lr_func(1000))
+    n_epochs = 6000
     iters = 0
 
     for epoch in range(n_epochs):
@@ -57,10 +57,16 @@ if __name__ == '__main__':
 
             optimizer.zero_grad()
             loss = model(samples, lengths, gt, loss_fn)
-
+            print(iters, loss['all'].item())
+            scalar_dict = {}
             for k, v in loss.items():
-                print(f"{k}: {v.item()}")
-                writer.add_scalar(f'loss/{k}', v, iters)
+                if isinstance(v, torch.Tensor):
+                    scalar_dict[k] = v.item()
+                else:
+                    scalar_dict[k] = v['all'].item()
+            writer.add_scalars('loss/loss', scalar_dict, iters)
+            for k in ['bbox', 'velocity']:
+                writer.add_scalars(f'loss/{k}', loss[k], iters)
             loss['all'].backward()
             optimizer.step()
             scheduler.step()

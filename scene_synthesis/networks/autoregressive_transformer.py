@@ -98,10 +98,12 @@ class AutoregressiveTransformer(nn.Module):
         mixture = Categorical(logits=mixture)
         prob = f.reshape(B, self.n_mixture, 2 * event_shape)
         assert distribution in ['LogNormal', 'VonMises']
-        deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
-        if distribution == 'VonMises':
-            deviation = 1 / torch.square(deviation)
-        prob = distribution(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
+        if distribution == 'LogNormal':
+            deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
+            prob = LogNormal(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
+        elif distribution == 'VonMises':
+            deviation = torch.exp(prob[..., event_shape:] * 0.2) * 2
+            prob = VonMises(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
         return prob

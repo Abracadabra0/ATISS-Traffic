@@ -9,7 +9,7 @@ class WeightedNLL(nn.Module):
         total = sum(weights.values())
         for k in self.weights:
             self.weights[k] = self.weights[k] / total
-        self._eps = 0.1  # numerical stability for LogNorm
+        self._eps = 1e-6  # numerical stability for LogNorm
 
     def forward(self, probs, gt):
         device = gt['category'].device

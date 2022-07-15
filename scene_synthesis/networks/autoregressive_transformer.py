@@ -303,8 +303,8 @@ class AutoregressiveTransformer(nn.Module):
                                                 f=bbox_f[:, self.n_mixture:5 * self.n_mixture],
                                                 distribution='LogNormal',
                                                 event_shape=2)
-                prob_theta = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
-                                                   f=bbox_f[:, 5 * self.n_mixture:7 * self.n_mixture],
+                prob_theta = self.mix_distribution(mixture=bbox_f[:, 5 * self.n_mixture:6 * self.n_mixture],
+                                                   f=bbox_f[:, 6 * self.n_mixture:8 * self.n_mixture],
                                                    distribution='VonMises',
                                                    event_shape=1)
                 pred_wl = prob_wl.sample()
@@ -326,8 +326,8 @@ class AutoregressiveTransformer(nn.Module):
                                                f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
                                                distribution='LogNormal',
                                                event_shape=1)
-                prob_omega = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
-                                                   f=velocity_f[:, 1 + 3 * self.n_mixture:1 + 5 * self.n_mixture],
+                prob_omega = self.mix_distribution(mixture=velocity_f[:, 1 + 3 * self.n_mixture:1 + 4 * self.n_mixture],
+                                                   f=velocity_f[:, 1 + 4 * self.n_mixture:1 + 6 * self.n_mixture],
                                                    distribution='VonMises',
                                                    event_shape=1)
                 pred_moving = prob_moving.sample()

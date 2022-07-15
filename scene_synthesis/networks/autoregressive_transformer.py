@@ -8,9 +8,8 @@
 
 import torch
 import torch.nn as nn
-from torch.distributions import Categorical, Bernoulli, Normal, LogNormal, VonMises, Independent, MixtureSameFamily
-from .utils import FixedPositionalEncoding, PositionalEncoding, TrainablePE, get_mlp, get_length_mask
-import numpy as np
+from torch.distributions import Categorical, Bernoulli, LogNormal, VonMises, Independent, MixtureSameFamily
+from .utils import FixedPositionalEncoding, TrainablePE, get_mlp, get_length_mask
 
 
 class AutoregressiveTransformer(nn.Module):
@@ -26,7 +25,6 @@ class AutoregressiveTransformer(nn.Module):
             batch_first=True
         ).encoder
         self.d_model = 768
-        # self.transformer_encoder = nn.LSTM(input_size=self.d_model, hidden_size=self.d_model, batch_first=True)
 
         # extract features from maps
         self.feature_extractor = feature_extractor
@@ -55,36 +53,36 @@ class AutoregressiveTransformer(nn.Module):
         self.n_mixture = 10
         self.prob_category = get_mlp(self.d_model, 4)  # categorical distribution
 
-        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                                get_mlp(self.d_model + 128,
+        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model * 2, 400),  # location
+                                                get_mlp(self.d_model * 2 + 128,
                                                         (1 + 2 * 2) * self.n_mixture +
                                                         (1 + 1 * 2) * self.n_mixture,
                                                         n_layers=5),  # bbox
-                                                get_mlp(self.d_model + 128 + 192,
+                                                get_mlp(self.d_model * 2 + 128 + 192,
                                                         1 +
                                                         (1 + 1 * 2) * self.n_mixture +
                                                         (1 + 1 * 2) * self.n_mixture))  # velocity
-        self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                               get_mlp(self.d_model + 128,
-                                                        (1 + 2 * 2) * self.n_mixture +
-                                                        (1 + 1 * 2) * self.n_mixture,
-                                                        n_layers=5),  # bbox
-                                                get_mlp(self.d_model + 128 + 192,
-                                                        1 +
-                                                        (1 + 1 * 2) * self.n_mixture +
-                                                        (1 + 1 * 2) * self.n_mixture))  # velocity
+        self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model * 2, 400),  # location
+                                               get_mlp(self.d_model * 2 + 128,
+                                                       (1 + 2 * 2) * self.n_mixture +
+                                                       (1 + 1 * 2) * self.n_mixture,
+                                                       n_layers=5),  # bbox
+                                               get_mlp(self.d_model * 2 + 128 + 192,
+                                                       1 +
+                                                       (1 + 1 * 2) * self.n_mixture +
+                                                       (1 + 1 * 2) * self.n_mixture))  # velocity
 
-        self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model, 400),  # location
-                                             get_mlp(self.d_model + 128,
-                                                        (1 + 2 * 2) * self.n_mixture +
-                                                        (1 + 1 * 2) * self.n_mixture,
-                                                        n_layers=5),  # bbox
-                                                get_mlp(self.d_model + 128 + 192,
-                                                        1 +
-                                                        (1 + 1 * 2) * self.n_mixture +
-                                                        (1 + 1 * 2) * self.n_mixture))  # velocity
+        self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model * 2, 400),  # location
+                                             get_mlp(self.d_model * 2 + 128,
+                                                     (1 + 2 * 2) * self.n_mixture +
+                                                     (1 + 1 * 2) * self.n_mixture,
+                                                     n_layers=5),  # bbox
+                                             get_mlp(self.d_model * 2 + 128 + 192,
+                                                     1 +
+                                                     (1 + 1 * 2) * self.n_mixture +
+                                                     (1 + 1 * 2) * self.n_mixture))  # velocity
         self.feature_dropout = nn.Dropout(p=0.2)
-        self.iters = 0
+        self.register_buffer('iters', torch.tensor(0))
 
     def mix_distribution(self, mixture, f, distribution, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
@@ -96,7 +94,10 @@ class AutoregressiveTransformer(nn.Module):
             deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
             prob = LogNormal(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         elif distribution == 'VonMises':
-            deviation = 7 + torch.exp(prob[..., event_shape:])
+            if self.iters < 4000:
+                deviation = 8
+            else:
+                deviation = 7 + torch.exp(prob[..., event_shape:])
             prob = VonMises(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
@@ -129,15 +130,15 @@ class AutoregressiveTransformer(nn.Module):
                                                                                            self.d_model)  # (B, L, d_model)
 
         input_f = torch.cat([self.q.expand(B, 1, self.d_model),
+                             map_f.unsqueeze(1),
                              self.pe(object_f)],
                             dim=1)  # (B, L + 2, d_model)
 
         # Compute the features using causal masking
-        length_mask = get_length_mask(lengths + 1)
-        # _, (output_f, _) = self.transformer_encoder(object_f)
+        length_mask = get_length_mask(lengths + 2)
         output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
-        # output_f = output_f.squeeze(0)
         # take only the encoded q token
+        map_f = output_f[:, 1, :]  # (B, d_model)
         output_f = output_f[:, 0, :]  # (B, d_model)
 
         # predict category
@@ -146,12 +147,13 @@ class AutoregressiveTransformer(nn.Module):
 
         loss_select = []
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
-            location_f = decoder[0](output_f)
+            location_f = decoder[0](output_f, map_f)
             prob_location = Categorical(logits=location_f)
             pred_location = prob_location.sample()
 
             bbox_f = decoder[1](torch.cat([
                 self.feature_dropout(output_f),
+                self.feature_dropout(map_f),
                 self.location_embedding(pred_location)
             ], dim=-1))
             prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
@@ -166,6 +168,7 @@ class AutoregressiveTransformer(nn.Module):
 
             velocity_f = decoder[2](torch.cat([
                 self.feature_dropout(output_f),
+                self.feature_dropout(map_f),
                 self.location_embedding(pred_location),
                 self.pe_bbox(pred_bbox)
             ], dim=-1))
@@ -182,30 +185,21 @@ class AutoregressiveTransformer(nn.Module):
             probs = {
                 "category": prob_category,
                 "location": prob_location,
-                "bbox": {"wl": prob_wl, "theta": prob_theta},
-                "velocity": {"moving": prob_moving, "s": prob_s, "omega": prob_omega}
+                "wl": prob_wl,
+                "theta": prob_theta,
+                "moving": prob_moving,
+                "s": prob_s,
+                "omega": prob_omega
             }
             loss_components = loss_fn(probs, gt)
             loss_select.append(loss_components)
 
         loss = {}
-        for k in ['all', 'category', 'location']:
+        for k in ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']:
             loss[k] = loss_select[0][k]
             loss[k] = torch.where(gt['category'] == 2, loss_select[1][k], loss[k])
             loss[k] = torch.where(gt['category'] == 3, loss_select[2][k], loss[k])
             loss[k] = loss[k].mean()
-        loss['bbox'] = {}
-        for k in ['all', 'wl', 'theta']:
-            loss['bbox'][k] = loss_select[0]['bbox'][k]
-            loss['bbox'][k] = torch.where(gt['category'] == 2, loss_select[1]['bbox'][k], loss['bbox'][k])
-            loss['bbox'][k] = torch.where(gt['category'] == 3, loss_select[2]['bbox'][k], loss['bbox'][k])
-            loss['bbox'][k] = loss['bbox'][k].mean()
-        loss['velocity'] = {}
-        for k in ['all', 'moving', 's', 'omega']:
-            loss['velocity'][k] = loss_select[0]['velocity'][k]
-            loss['velocity'][k] = torch.where(gt['category'] == 2, loss_select[1]['velocity'][k], loss['velocity'][k])
-            loss['velocity'][k] = torch.where(gt['category'] == 3, loss_select[2]['velocity'][k], loss['velocity'][k])
-            loss['velocity'][k] = loss['velocity'][k].mean()
 
         self.iters += 1
         return loss
@@ -285,7 +279,7 @@ class AutoregressiveTransformer(nn.Module):
                 prob_location = None
                 pred_location = condition['location']
             else:
-                location_f = decoder[0](output_f)
+                location_f = decoder[0](output_f, map_f)
                 prob_location = Categorical(logits=location_f)
                 pred_location = prob_location.sample()
 
@@ -297,6 +291,7 @@ class AutoregressiveTransformer(nn.Module):
             else:
                 bbox_f = decoder[1](torch.cat([
                     output_f,
+                    map_f,
                     self.location_embedding(pred_location)
                 ], dim=-1))
                 prob_wl = self.mix_distribution(mixture=bbox_f[:, :self.n_mixture],
@@ -319,8 +314,12 @@ class AutoregressiveTransformer(nn.Module):
                 pred_s = condition['velocity']['s']
                 pred_omega = condition['velocity']['omega']
             else:
-                velocity_f = decoder[2](
-                    torch.cat([output_f, self.location_embedding(pred_location), self.pe_bbox(pred_bbox)], dim=-1))
+                velocity_f = decoder[2](torch.cat([
+                    output_f,
+                    map_f,
+                    self.location_embedding(pred_location),
+                    self.pe_bbox(pred_bbox)
+                ], dim=-1))
                 prob_moving = Bernoulli(logits=velocity_f[:, :1])
                 prob_s = self.mix_distribution(mixture=velocity_f[:, 1:1 + self.n_mixture],
                                                f=velocity_f[:, 1 + self.n_mixture:1 + 3 * self.n_mixture],
@@ -347,25 +346,3 @@ class AutoregressiveTransformer(nn.Module):
                 "velocity": {"moving": pred_moving.squeeze(0), "s": pred_s.squeeze(0), "omega": pred_omega.squeeze(0)}
             }
             return preds, probs
-
-
-def train_on_batch(model, optimizer, sample_params, config):
-    # Make sure that everything has the correct size
-    optimizer.zero_grad()
-    X_pred = model(sample_params)
-    # Compute the loss
-    loss = X_pred.reconstruction_loss(sample_params, sample_params["lengths"])
-    # Do the backpropagation
-    loss.backward()
-    # Do the update
-    optimizer.step()
-
-    return loss.item()
-
-
-@torch.no_grad()
-def validate_on_batch(model, sample_params, config):
-    X_pred = model(sample_params)
-    # Compute the loss
-    loss = X_pred.reconstruction_loss(sample_params, sample_params["lengths"])
-    return loss.item()

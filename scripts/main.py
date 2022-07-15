@@ -26,7 +26,7 @@ if __name__ == '__main__':
     os.makedirs('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', exist_ok=True)
     dataset = NuScenesDataset("/home/yefanlin/scratch/data/nuScene-processed", train=True)
     # dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_train)
+    dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=4, collate_fn=collate_train)
     feature_extractor = ResNet18(4, 512)
     feature_extractor.to(device)
     model = AutoregressiveTransformer(feature_extractor)
@@ -41,9 +41,9 @@ if __name__ == '__main__':
         'omega': 0.3
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.01)
+    optimizer = Adam(model.parameters(), lr=768**-0.5 * 1e-3)
     scheduler = LambdaLR(optimizer, lr_func(1000))
-    n_epochs = 12000
+    n_epochs = 200
     iters = 0
 
     for epoch in range(n_epochs):
@@ -58,19 +58,9 @@ if __name__ == '__main__':
             optimizer.zero_grad()
             loss = model(samples, lengths, gt, loss_fn)
             print(iters, loss['all'].item())
-            scalar_dict = {}
             for k, v in loss.items():
-                if isinstance(v, torch.Tensor):
-                    scalar_dict[k] = v.item()
-                else:
-                    scalar_dict[k] = v['all'].item()
-            writer.add_scalars('loss/loss', scalar_dict, iters)
-            for k in ['bbox', 'velocity']:
-                writer.add_scalars(f'loss/{k}', loss[k], iters)
+                writer.add_scalar(f'loss/{k}', loss[k], iters)
             loss['all'].backward()
-            parameters = [p for p in model.parameters() if p.grad is not None]
-            total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2.0) for p in parameters]), 2.0)
-            writer.add_scalar('scale', total_norm, epoch)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
             optimizer.step()
             scheduler.step()

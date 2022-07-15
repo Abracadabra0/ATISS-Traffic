@@ -43,7 +43,7 @@ if __name__ == '__main__':
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.01)
     scheduler = LambdaLR(optimizer, lr_func(1000))
-    n_epochs = 6000
+    n_epochs = 12000
     iters = 0
 
     for epoch in range(n_epochs):
@@ -70,7 +70,7 @@ if __name__ == '__main__':
             loss['all'].backward()
             parameters = [p for p in model.parameters() if p.grad is not None]
             total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2.0) for p in parameters]), 2.0)
-            writer.add_scalar('scale', total_norm / (768**-0.5 * 0.1 * lr_func(1000)(epoch)), epoch)
+            writer.add_scalar('scale', total_norm, epoch)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
             optimizer.step()
             scheduler.step()

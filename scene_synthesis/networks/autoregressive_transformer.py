@@ -96,7 +96,10 @@ class AutoregressiveTransformer(nn.Module):
             deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
             prob = LogNormal(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         elif distribution == 'VonMises':
-            deviation = 8
+            if self.iters < 6000:
+                deviation = 8
+            else:
+                deviation = 7 + torch.exp(prob[..., event_shape:])
             prob = VonMises(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape

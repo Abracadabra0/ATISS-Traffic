@@ -26,10 +26,8 @@ if __name__ == '__main__':
     os.makedirs('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', exist_ok=True)
     dataset = NuScenesDataset("/home/yefanlin/scratch/data/nuScene-processed", train=True)
     # dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_train)
-    feature_extractor = ResNet18(4, 512)
-    feature_extractor.to(device)
-    model = AutoregressiveTransformer(feature_extractor)
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4, collate_fn=collate_train)
+    model = AutoregressiveTransformer()
     model.to(device)
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
@@ -43,7 +41,7 @@ if __name__ == '__main__':
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.01)
     scheduler = LambdaLR(optimizer, lr_func(500))
-    n_epochs = 12000
+    n_epochs = 200
     iters = 0
 
     for epoch in range(n_epochs):

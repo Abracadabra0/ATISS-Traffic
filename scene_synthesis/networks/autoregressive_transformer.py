@@ -10,10 +10,11 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical, Bernoulli, LogNormal, VonMises, Independent, MixtureSameFamily
 from .utils import FixedPositionalEncoding, TrainablePE, get_mlp, get_length_mask
+from .feature_extractors import ResNet18
 
 
 class AutoregressiveTransformer(nn.Module):
-    def __init__(self, feature_extractor):
+    def __init__(self):
         super().__init__()
         # Build a transformer encoder
         self.transformer_encoder = nn.Transformer(
@@ -27,7 +28,7 @@ class AutoregressiveTransformer(nn.Module):
         self.d_model = 768
 
         # extract features from maps
-        self.feature_extractor = feature_extractor
+        self.feature_extractor = ResNet18(4, 512)
 
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)

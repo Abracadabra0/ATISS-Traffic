@@ -64,7 +64,7 @@ class AutoregressiveTransformer(nn.Module):
                                                         (1 + 1 * 2) * self.n_mixture),  # s
                                                 get_mlp(self.d_model + 128 + 192,
                                                         (1 + 1 * 2) * self.n_mixture))  # omega
-        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
+        self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                                 get_mlp(self.d_model + 128,
                                                         (1 + 2 * 2) * self.n_mixture),  # wl
                                                 get_mlp(self.d_model + 128,
@@ -75,7 +75,7 @@ class AutoregressiveTransformer(nn.Module):
                                                         (1 + 1 * 2) * self.n_mixture),  # s
                                                 get_mlp(self.d_model + 128 + 192,
                                                         (1 + 1 * 2) * self.n_mixture))  # omega
-        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model, 400),  # location
+        self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model, 400),  # location
                                                 get_mlp(self.d_model + 128,
                                                         (1 + 2 * 2) * self.n_mixture),  # wl
                                                 get_mlp(self.d_model + 128,
@@ -147,7 +147,7 @@ class AutoregressiveTransformer(nn.Module):
 
         loss_select = []
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
-            location_f = decoder[0](output_f, map_f)
+            location_f = decoder[0](output_f)
             prob_location = Categorical(logits=location_f)
             pred_location = prob_location.sample()
 
@@ -278,7 +278,7 @@ class AutoregressiveTransformer(nn.Module):
                 prob_location = None
                 pred_location = condition['location']
             else:
-                location_f = decoder[0](output_f, map_f)
+                location_f = decoder[0](output_f)
                 prob_location = Categorical(logits=location_f)
                 pred_location = prob_location.sample()
 

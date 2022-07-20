@@ -41,9 +41,9 @@ if __name__ == '__main__':
         'omega': 0.3
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)
+    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.01)
     scheduler = LambdaLR(optimizer, lr_func(500))
-    n_epochs = 6000
+    n_epochs = 12000
     iters = 0
 
     for epoch in range(n_epochs):

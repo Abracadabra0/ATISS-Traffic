@@ -94,11 +94,16 @@ class AutoregressiveTransformer(nn.Module):
         mixture = Categorical(logits=f[..., :self.n_mixture])
         prob = f[..., self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
         assert distribution in ['LogNormal', 'VonMises']
-        deviation = torch.exp(prob[..., event_shape:])
-        deviation = torch.clamp(deviation, min=0.1, max=10)
         if distribution == 'LogNormal':
+            deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
+            deviation = torch.clamp(deviation, min=0.1, max=10)
             prob = LogNormal(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         elif distribution == 'VonMises':
+            if self.iters < 6000:
+                deviation = 8
+            else:
+                deviation = 7 + torch.exp(prob[..., event_shape:])
+                deviation = torch.clamp(deviation, min=0.1, max=10)
             prob = VonMises(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
@@ -290,7 +295,6 @@ class AutoregressiveTransformer(nn.Module):
             else:
                 bbox_f = torch.cat([
                     output_f,
-                    map_f,
                     self.location_embedding(pred_location)
                 ], dim=-1)
                 prob_wl = self.mix_distribution(f=decoder[1](bbox_f),
@@ -313,7 +317,6 @@ class AutoregressiveTransformer(nn.Module):
             else:
                 velocity_f = torch.cat([
                     output_f,
-                    map_f,
                     self.location_embedding(pred_location),
                     self.pe_bbox(pred_bbox)
                 ], dim=-1)

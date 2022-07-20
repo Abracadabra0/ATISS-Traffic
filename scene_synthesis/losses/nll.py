@@ -63,10 +63,10 @@ class WeightedNLL(nn.Module):
 
         components = {
             'all': loss,
-            'category': loss_category,
-            'location': loss_location,
-            'wl': loss_wl,
-            'theta': loss_theta,
+            'category': loss_category * self.weights['category'],
+            'location': loss_location * self.weights['location'],
+            'wl': loss_wl * self.weights['wl'],
+            'theta': loss_theta * self.weights['theta'],
             'moving': loss_moving * self.weights['moving'],
             's': loss_s * self.weights['s'],
             'omega': loss_omega * self.weights['omega']

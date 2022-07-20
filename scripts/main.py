@@ -43,7 +43,7 @@ if __name__ == '__main__':
     loss_fn.to(device)
     optimizer = Adam(model.parameters(), lr=768**-0.5 * 1e-3)
     scheduler = LambdaLR(optimizer, lr_func(1000))
-    n_epochs = 200
+    n_epochs = 6000
     iters = 0
 
     for epoch in range(n_epochs):
@@ -61,7 +61,7 @@ if __name__ == '__main__':
             for k, v in loss.items():
                 writer.add_scalar(f'loss/{k}', loss[k], iters)
             loss['all'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
             optimizer.step()
             scheduler.step()
             iters += 1

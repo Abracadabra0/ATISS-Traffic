@@ -136,16 +136,19 @@ class AutoregressiveTransformer(nn.Module):
         object_f = self.fc_object(torch.flatten(object_f, start_dim=0, end_dim=1)).reshape(B, L,
                                                                                            self.d_model)  # (B, L, d_model)
 
-        input_f = torch.cat([self.q.expand(B, 1, self.d_model),
-                             map_f.unsqueeze(1),
-                             self.pe(object_f)],
-                            dim=1)  # (B, L + 2, d_model)
+        # input_f = torch.cat([self.q.expand(B, 1, self.d_model),
+        #                      map_f.unsqueeze(1),
+        #                      self.pe(object_f)],
+        #                     dim=1)  # (B, L + 2, d_model)
+        input_f = torch.cat([map_f.unsqueeze(1),
+                            self.pe(object_f)],
+                            dim=1)  # (B, L + 1, d_model)
 
         # Compute the features using causal masking
-        length_mask = get_length_mask(lengths + 2)
+        length_mask = get_length_mask(lengths + 1)
         output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)
         # take only the encoded q token
-        output_f = output_f[:, 0, :]  # (B, d_model)
+        output_f = output_f.mean(dim=1)  # (B, d_model)
 
         # predict category
         prob_category = self.prob_category(output_f)  # (B, 4)

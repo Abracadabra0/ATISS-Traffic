@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append('/home/yefanlin/project/ATISS-Traffic')
+sys.path.append('/shared/perception/personals/yefanlin/project/ATISS-Traffic')
 
 import os
 import torch
@@ -22,9 +22,9 @@ if __name__ == '__main__':
     np.random.seed(0)
     torch.manual_seed(0)
     timestamp = time.strftime('%m-%d-%H:%M:%S')
-    writer = SummaryWriter(log_dir=f'/home/yefanlin/scratch/project/ATISS-Traffic/log/{timestamp}')
-    os.makedirs('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', exist_ok=True)
-    dataset = NuScenesDataset("/home/yefanlin/scratch/data/nuScene-processed", train=True)
+    writer = SummaryWriter(log_dir=f'./log/{timestamp}')
+    os.makedirs('./ckpts', exist_ok=True)
+    dataset = NuScenesDataset("../../data/nuScene-processed", train=True)
     # dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
     dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4, collate_fn=collate_train)
     model = AutoregressiveTransformer()
@@ -32,16 +32,16 @@ if __name__ == '__main__':
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
         'location': 1.,
-        'wl': 0.6,
-        'theta': 0.6,
-        'moving': 0.3,
-        's': 0.3,
-        'omega': 0.3
+        'wl': 0.,
+        'theta': 0.,
+        'moving': 0.,
+        's': 0.,
+        'omega': 0.
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.01)
-    scheduler = LambdaLR(optimizer, lr_func(500))
-    n_epochs = 200
+    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)
+    scheduler = LambdaLR(optimizer, lr_func(1000))
+    n_epochs = 400
     iters = 0
 
     for epoch in range(n_epochs):
@@ -65,4 +65,4 @@ if __name__ == '__main__':
             iters += 1
 
     model.cpu()
-    torch.save(model.state_dict(), os.path.join('/home/yefanlin/scratch/project/ATISS-Traffic/ckpts', timestamp))
+    torch.save(model.state_dict(), os.path.join('./ckpts', timestamp))

@@ -34,7 +34,7 @@ class AutoregressiveTransformer(nn.Module):
         self.category_embedding = nn.Embedding(4, 64)
 
         # Embed location
-        self.location_embedding = nn.Embedding(400, 128)
+        self.location_embedding = nn.Embedding(1600, 128)
 
         # Positional encoding for other attributes
         self.pe_bbox = FixedPositionalEncoding(proj_dims=64)
@@ -54,7 +54,7 @@ class AutoregressiveTransformer(nn.Module):
         self.n_mixture = 10
         self.prob_category = get_mlp(self.d_model, 4)  # categorical distribution
 
-        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model * 2, 400),  # location
+        self.decoder_pedestrian = nn.Sequential(get_mlp(self.d_model * 2, 1600),  # location
                                                 get_mlp(self.d_model + 128,
                                                         (1 + 2 * 2) * self.n_mixture),  # wl
                                                 get_mlp(self.d_model + 128,
@@ -65,7 +65,7 @@ class AutoregressiveTransformer(nn.Module):
                                                         (1 + 1 * 2) * self.n_mixture),  # s
                                                 get_mlp(self.d_model + 128 + 192,
                                                         (1 + 1 * 2) * self.n_mixture))  # omega
-        self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model * 2, 400),  # location
+        self.decoder_bicyclist = nn.Sequential(get_mlp(self.d_model * 2, 1600),  # location
                                                 get_mlp(self.d_model + 128,
                                                         (1 + 2 * 2) * self.n_mixture),  # wl
                                                 get_mlp(self.d_model + 128,
@@ -76,7 +76,7 @@ class AutoregressiveTransformer(nn.Module):
                                                         (1 + 1 * 2) * self.n_mixture),  # s
                                                 get_mlp(self.d_model + 128 + 192,
                                                         (1 + 1 * 2) * self.n_mixture))  # omega
-        self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model * 2, 400),  # location
+        self.decoder_vehicle = nn.Sequential(get_mlp(self.d_model * 2, 1600),  # location
                                                 get_mlp(self.d_model + 128,
                                                         (1 + 2 * 2) * self.n_mixture),  # wl
                                                 get_mlp(self.d_model + 128,
@@ -113,8 +113,8 @@ class AutoregressiveTransformer(nn.Module):
     def forward(self, samples, lengths, gt, loss_fn):
         # Unpack the samples
         category = samples["category"]  # (B, L)
-        location = ((samples['location'] + 40) / 4).long()
-        location = location[..., 0] * 20 + location[..., 1]
+        location = ((samples['location'] + 40) / 2).long()
+        location = location[..., 0] * 40 + location[..., 1]
         bbox = samples["bbox"]
         velocity = samples["velocity"]
         maps = samples["map"]

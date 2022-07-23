@@ -11,7 +11,6 @@ from torch.optim.lr_scheduler import LambdaLR
 from scene_synthesis.datasets.nuScenes import NuScenesDataset
 from scene_synthesis.datasets.utils import collate_train
 from scene_synthesis.networks.autoregressive_transformer import AutoregressiveTransformer
-from scene_synthesis.networks.feature_extractors import ResNet18
 from torch.optim import Adam
 import numpy as np
 from scene_synthesis.losses.nll import WeightedNLL, lr_func
@@ -25,21 +24,20 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
     dataset = NuScenesDataset("../../data/nuScene-processed", train=True)
-    # dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed", train=True)
     dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4, collate_fn=collate_train)
     model = AutoregressiveTransformer()
     model.to(device)
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
         'location': 1.,
-        'wl': 0.,
-        'theta': 0.,
-        'moving': 0.,
-        's': 0.,
-        'omega': 0.
+        'wl': 0.5,
+        'theta': 0.5,
+        'moving': 0.3,
+        's': 0.3,
+        'omega': 0.3
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=768**-0.5 * 0.1)
+    optimizer = Adam(model.parameters(), lr=768 ** -0.5 * 0.01)
     scheduler = LambdaLR(optimizer, lr_func(1000))
     n_epochs = 400
     iters = 0

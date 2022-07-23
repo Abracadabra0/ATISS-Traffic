@@ -1,26 +1,31 @@
-import torch
 from torch import nn
-from torchvision import models
 
 
-class ResNet18(nn.Module):
-    def __init__(self, input_channels, feature_size):
+class Extractor(nn.Module):
+    def __init__(self, input_channels):
         super().__init__()
-        self.feature_size = feature_size
-        self._feature_extractor = models.resnet18(pretrained=False)
-        self._feature_extractor.conv1 = torch.nn.Conv2d(
-            input_channels,
-            64,
-            kernel_size=(7, 7),
-            stride=(2, 2),
-            padding=(3, 3),
-            bias=False
-        )
-        self._feature_extractor.fc = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.feature_size)
+        self.model = nn.Sequential(
+            nn.Conv2d(in_channels=input_channels, out_channels=64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
+
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(5, 5), stride=(1, 1), padding=(2, 2)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(5, 5), stride=(2, 2), padding=(2, 2)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
         )
 
-    def forward(self, feature_map):
-        return self._feature_extractor(feature_map)
+    def forward(self, x):
+        return self.model(x)

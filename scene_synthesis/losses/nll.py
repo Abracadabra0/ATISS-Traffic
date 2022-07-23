@@ -16,9 +16,7 @@ class WeightedNLL(nn.Module):
 
         loss_category = -probs['category'].log_prob(gt['category'])
 
-        loc = ((gt['location'] + 40) / 4).long()
-        loc = loc[..., 0] * 20 + loc[..., 1]
-        loss_location = -probs['location'].log_prob(loc)
+        loss_location = -probs['location'].log_prob(gt['location'])
         loss_location = torch.where(gt['category'] == 0,
                                     torch.tensor(0., device=device),
                                     loss_location)

@@ -121,8 +121,11 @@ class AutoregressiveTransformer(nn.Module):
         prob = f[..., self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
         assert distribution in ['LogNormal', 'VonMises']
         if distribution == 'LogNormal':
-            deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
-            deviation = torch.clamp(deviation, min=0.1, max=10)
+            if self.iters < 5000:
+                deviation = 0.3
+            else:
+                deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
+                deviation = torch.clamp(deviation, min=0.1, max=10)
             prob = LogNormal(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         elif distribution == 'VonMises':
             if self.iters < 5000:

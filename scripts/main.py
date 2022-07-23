@@ -24,7 +24,7 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
     dataset = NuScenesDataset("../../data/nuScene-processed", train=True)
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4, collate_fn=collate_train)
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=8, collate_fn=collate_train)
     model = AutoregressiveTransformer()
     model.to(device)
     loss_fn = WeightedNLL(weights={

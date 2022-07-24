@@ -28,16 +28,16 @@ if __name__ == '__main__':
     model = AutoregressiveTransformer()
     model.to(device)
     loss_fn = WeightedNLL(weights={
-        'category': 0.2,
+        'category': 0.1,
         'location': 1.,
-        'wl': 0.5,
-        'theta': 0.5,
-        'moving': 0.3,
-        's': 0.3,
-        'omega': 0.3
+        'wl': 0.1,
+        'theta': 0.1,
+        'moving': 0.1,
+        's': 0.1,
+        'omega': 0.1
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=768 ** -0.5 * 0.01)
+    optimizer = Adam(model.parameters(), lr=1e-3)
     scheduler = LambdaLR(optimizer, lr_func(1000))
     n_epochs = 400
     iters = 0
@@ -61,6 +61,10 @@ if __name__ == '__main__':
             optimizer.step()
             scheduler.step()
             iters += 1
+        if (epoch + 1) % 100 == 0:
+            model.cpu()
+            torch.save(model.state_dict(), os.path.join('./ckpts', timestamp + f'({epoch})'))
+            model.to(device)
 
     model.cpu()
     torch.save(model.state_dict(), os.path.join('./ckpts', timestamp))

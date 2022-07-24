@@ -73,6 +73,7 @@ class AutoregressiveTransformer(nn.Module):
             batch_first=True
         ).encoder
         self.d_model = 768
+        self.q = nn.Parameter(torch.randn(self.d_model))
 
         # extract features from maps
         self.feature_extractor = Extractor(4)
@@ -121,11 +122,8 @@ class AutoregressiveTransformer(nn.Module):
         prob = f[..., self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
         assert distribution in ['LogNormal', 'VonMises']
         if distribution == 'LogNormal':
-            if self.iters < 5000:
-                deviation = 0.3
-            else:
-                deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
-                deviation = torch.clamp(deviation, min=0.1, max=10)
+            deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
+            deviation = torch.clamp(deviation, min=0.1, max=10)
             prob = LogNormal(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
         elif distribution == 'VonMises':
             if self.iters < 5000:
@@ -140,7 +138,7 @@ class AutoregressiveTransformer(nn.Module):
 
     def _decode(self, decoder, output_f, map_f):
         B = output_f.size(0)
-        f_in = torch.cat([output_f.expand(B, 10000, self.d_model), map_f], dim=-1)
+        f_in = torch.cat([output_f[:, None, :].expand(B, 10000, self.d_model), map_f], dim=-1)
         f_out = decoder(f_in, 'location')  # (B, 10000)
         prob_location = Categorical(logits=f_out)
         pred_location = prob_location.sample()  # (B, )
@@ -230,10 +228,14 @@ class AutoregressiveTransformer(nn.Module):
         velocity_f = self.pe_velocity(velocity)
         object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, L, 512)
         object_f = self.fc_object(object_f)  # (B, L, d_model)
+        input_f = torch.cat([self.q.expand(B, 1, self.d_model),
+                            self.pe(object_f)],
+                            dim=1)  # (B, L + 1, d_model)
 
         # Compute the features using causal masking
-        length_mask = get_length_mask(lengths)
-        output_f = self.transformer_encoder(self.pe(object_f), src_key_padding_mask=length_mask)  # (B, L, d_model)
+        length_mask = get_length_mask(lengths + 1)
+        output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)  # (B, L + 1, d_model)
+
         # max pooling
         output_f = output_f.max(dim=1)[0]  # (B, d_model)
 
@@ -287,10 +289,13 @@ class AutoregressiveTransformer(nn.Module):
             velocity_f = self.pe_velocity(velocity)
             object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, L, 512)
             object_f = self.fc_object(object_f)  # (B, L, d_model)
+            input_f = torch.cat([self.q.expand(B, 1, self.d_model),
+                               self.pe(object_f)],
+                               dim=1)  # (B, L + 1, d_model)
 
             # Compute the features using causal masking
-            length_mask = get_length_mask(lengths)
-            output_f = self.transformer_encoder(self.pe(object_f), src_key_padding_mask=length_mask)  # (B, L, d_model)
+            length_mask = get_length_mask(lengths + 1)
+            output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)  # (B, L + 1, d_model)
             # max pooling
             output_f = output_f.max(dim=1)[0]  # (B, d_model)
 

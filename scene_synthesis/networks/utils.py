@@ -50,10 +50,10 @@ class PositionalEncoding(nn.Module):
 def get_mlp(hidden_size, output_size):
     mlp_layers = [
         nn.Linear(hidden_size, 2 * hidden_size),
-        # nn.BatchNorm1d(2 * hidden_size),
+        nn.BatchNorm1d(2 * hidden_size),
         nn.ReLU(inplace=True),
         nn.Linear(2 * hidden_size, hidden_size),
-        # nn.BatchNorm1d(hidden_size),
+        nn.BatchNorm1d(hidden_size),
         nn.ReLU(inplace=True),
         nn.Linear(hidden_size, output_size)
     ]

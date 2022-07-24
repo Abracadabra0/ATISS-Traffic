@@ -6,6 +6,7 @@
 #          Andreas Geiger, Sanja Fidler
 # 
 
+import math
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical, Bernoulli, LogNormal, VonMises, Independent, MixtureSameFamily
@@ -28,11 +29,11 @@ class Decoder(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1)),
         )
-        self.wl = get_mlp(self.d_model + 128, (1 + 2 * 2) * self.n_mixture)
-        self.theta = get_mlp(self.d_model + 128, (1 + 1 * 2) * self.n_mixture)
+        self.wl = get_mlp(self.d_model + 128, (1 + 2 + 2) * self.n_mixture)
+        self.theta = get_mlp(self.d_model + 128, (1 + 2 + 1) * self.n_mixture)
         self.moving = get_mlp(self.d_model + 128 + 192, 1)
-        self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 * 2) * self.n_mixture)
-        self.omega = get_mlp(self.d_model + 128 + 192, (1 + 1 * 2) * self.n_mixture)
+        self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 + 1) * self.n_mixture)
+        self.omega = get_mlp(self.d_model + 128 + 192, (1 + 2 + 1) * self.n_mixture)
 
     def forward(self, f, field):
         if field == 'location':
@@ -115,25 +116,39 @@ class AutoregressiveTransformer(nn.Module):
         y = y + torch.rand(*y.shape) * 0.8
         return torch.stack([x, y], dim=-1)
 
-    def _mix_distribution(self, f, distribution, event_shape):
+    def _mix_lognormal(self, f, event_shape):
         # f: (B, (1 + event_shape * 2) * self.n_mixture)
         B = f.shape[0]
         mixture = Categorical(logits=f[..., :self.n_mixture])
-        prob = f[..., self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
-        assert distribution in ['LogNormal', 'VonMises']
-        if distribution == 'LogNormal':
-            deviation = torch.sigmoid(prob[..., event_shape:]) * 0.5
-            deviation = torch.clamp(deviation, min=0.1, max=10)
-            prob = LogNormal(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
-        elif distribution == 'VonMises':
-            if self.iters < 5000:
-                deviation = 8
-            else:
-                deviation = 7 + torch.exp(prob[..., event_shape:])
-                deviation = torch.clamp(deviation, min=0.1, max=10)
-            prob = VonMises(prob[..., :event_shape], deviation)  # batch_shape = (B, n_mixture, event_shape)
+        f = f[..., self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
+        mu = f[..., :event_shape]
+        sigma = torch.sigmoid(f[..., event_shape:]) * 0.5
+        sigma = torch.clamp(sigma, min=0.1, max=10)
+        prob = LogNormal(mu, sigma)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
+        return prob
+
+    def _mix_vonmises(self, f):
+        # f: (B, (1 + 2 + 1) * self.n_mixture)
+        B = f.shape[0]
+        mixture = Categorical(logits=f[..., :self.n_mixture])
+        f = f[..., self.n_mixture:].reshape(B, self.n_mixture, 3)
+        cos = f[..., 0:1]
+        sin = f[..., 1:2]
+        kappa = torch.exp(f[..., 2:3])
+        norm = torch.sqrt(cos ** 2 + sin ** 2)
+        cos = cos / norm
+        sin = sin / norm
+        mu = torch.arcsin(sin)
+        mu = torch.where(cos >= 0, mu, torch.sign(sin) * math.pi - mu)
+        prob = VonMises(mu, kappa)
+        prob = Independent(prob, reinterpreted_batch_ndims=1)
+        prob = MixtureSameFamily(mixture, prob)
+        prob.params = {'mixture': mixture.logits,
+                       'cos': cos,
+                       'sin': sin,
+                       'kappa': kappa}
         return prob
 
     def _decode(self, decoder, output_f, map_f):
@@ -152,13 +167,10 @@ class AutoregressiveTransformer(nn.Module):
             location_f
         ], dim=-1)  # (B, d_model + 128)
         f_out = decoder(f_in, 'wl')
-        prob_wl = self._mix_distribution(f=f_out,
-                                         distribution='LogNormal',
-                                         event_shape=2)
+        prob_wl = self._mix_lognormal(f=f_out,
+                                      event_shape=2)
         f_out = decoder(f_in, 'theta')
-        prob_theta = self._mix_distribution(f=f_out,
-                                            distribution='VonMises',
-                                            event_shape=1)
+        prob_theta = self._mix_vonmises(f=f_out)
         pred_wl = prob_wl.sample()
         pred_theta = prob_theta.sample()
         pred_bbox = torch.cat([pred_wl, pred_theta], dim=-1)
@@ -172,13 +184,9 @@ class AutoregressiveTransformer(nn.Module):
         f_out = decoder(f_in, 'moving')
         prob_moving = Bernoulli(logits=f_out)
         f_out = decoder(f_in, 's')
-        prob_s = self._mix_distribution(f=f_out,
-                                        distribution='LogNormal',
-                                        event_shape=1)
+        prob_s = self._mix_lognormal(f=f_out, event_shape=1)
         f_out = decoder(f_in, 'omega')
-        prob_omega = self._mix_distribution(f=f_out,
-                                            distribution='VonMises',
-                                            event_shape=1)
+        prob_omega = self._mix_vonmises(f=f_out)
         pred_moving = prob_moving.sample()
         pred_s = prob_s.sample()
         pred_omega = prob_omega.sample()
@@ -192,7 +200,7 @@ class AutoregressiveTransformer(nn.Module):
             "omega": prob_omega
         }
         preds = {
-            "location": pred_location,
+            "location": self._smooth_loc(pred_location),
             "wl": pred_wl,
             "theta": pred_theta,
             "moving": pred_moving,
@@ -229,7 +237,7 @@ class AutoregressiveTransformer(nn.Module):
         object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, L, 512)
         object_f = self.fc_object(object_f)  # (B, L, d_model)
         input_f = torch.cat([self.q.expand(B, 1, self.d_model),
-                            self.pe(object_f)],
+                             self.pe(object_f)],
                             dim=1)  # (B, L + 1, d_model)
 
         # Compute the features using causal masking
@@ -290,8 +298,8 @@ class AutoregressiveTransformer(nn.Module):
             object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, L, 512)
             object_f = self.fc_object(object_f)  # (B, L, d_model)
             input_f = torch.cat([self.q.expand(B, 1, self.d_model),
-                               self.pe(object_f)],
-                               dim=1)  # (B, L + 1, d_model)
+                                 self.pe(object_f)],
+                                dim=1)  # (B, L + 1, d_model)
 
             # Compute the features using causal masking
             length_mask = get_length_mask(lengths + 1)

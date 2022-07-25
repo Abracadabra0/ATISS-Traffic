@@ -62,7 +62,7 @@ class Decoder(nn.Module):
 
 
 class AutoregressiveTransformer(nn.Module):
-    def __init__(self):
+    def __init__(self, loss_fn=None, optimizer=None, scheduler=None):
         super().__init__()
         # Build a transformer encoder
         self.transformer_encoder = nn.Transformer(
@@ -101,6 +101,9 @@ class AutoregressiveTransformer(nn.Module):
         self.decoder_vehicle = Decoder()
 
         self.register_buffer('iters', torch.tensor(0))
+        self.loss_fn = loss_fn
+        self.optimizer = optimizer
+        self.scheduler = scheduler
 
     def _discrete_loc(self, loc):
         row = ((40 - loc[..., 1]) / 0.8).long()
@@ -209,9 +212,42 @@ class AutoregressiveTransformer(nn.Module):
         }
         return probs, preds
 
-    def _forward_step(self, input_f, map_f, step, gt, loss_fn):
+    def _forward_step(self, samples, step):
+        B, L, *_ = samples["category"].shape
+        # Unpack the samples
+        category = samples["category"][:, :step]  # (B, step)
+        location = samples['location'][:, :step]  # (B, step)
+        bbox = samples["bbox"][:, :step]
+        velocity = samples["velocity"][:, :step]
+        maps = samples["map"]
+        # Unpack ground truth
+        gt = {}
+        for k in ['category', 'location', 'bbox', 'velocity']:
+            gt[k] = samples[k][:, step]
+
+        # extract features from map
+        map_f = self.feature_extractor(maps)  # (B, 128, 100, 100)
+        map_f = map_f.flatten(2, 3).permute([0, 2, 1]).contiguous()  # (B, 10000, 128)
+
+        # embed category
+        category_f = self.category_embedding(category)
+        # positional encoding for location
+        location_f = []
+        for location_one, map_f_one in zip(location, map_f):
+            location_f.append(map_f_one[location_one])
+        location_f = torch.stack(location_f, dim=0)  # (B, step, 128)
+        # positional encoding for bounding box
+        bbox_f = self.pe_bbox(bbox)
+        # positional encoding for velocity
+        velocity_f = self.pe_velocity(velocity)
+        object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, step, 512)
+        object_f = self.fc_object(object_f)  # (B, step, d_model)
+        input_f = torch.cat([self.q.expand(B, 1, self.d_model),
+                             self.pe(object_f)],
+                            dim=1)  # (B, step + 1, d_model)
+
         # masking
-        output_f = self.transformer_encoder(input_f[:, :(step + 1)])  # (B, step + 1, d_model)
+        output_f = self.transformer_encoder(input_f)  # (B, step + 1, d_model)
 
         # max pooling
         output_f = output_f.max(dim=1)[0]  # (B, d_model)
@@ -224,7 +260,7 @@ class AutoregressiveTransformer(nn.Module):
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
             probs, _ = self._decode(decoder, output_f, map_f)
             probs["category"] = prob_category
-            loss_components = loss_fn(probs, gt)
+            loss_components = self.loss_fn(probs, gt)
             loss_select.append(loss_components)
 
         loss = {}
@@ -235,55 +271,28 @@ class AutoregressiveTransformer(nn.Module):
 
         return loss
 
-    def forward(self, samples, lengths, loss_fn):
-        # Unpack the samples
-        category = samples["category"]  # (B, L)
-        location = self._discrete_loc(samples['location'])  # (B, L)
-        bbox = samples["bbox"]
-        velocity = samples["velocity"]
-        maps = samples["map"]
-        B, L, *_ = category.shape
-
-        # extract features from map
-        map_f = self.feature_extractor(maps)  # (B, 128, 100, 100)
-        map_f = map_f.flatten(2, 3).permute([0, 2, 1]).contiguous()  # (B, 10000, 128)
-
-        # embed category
-        category_f = self.category_embedding(category)
-        # positional encoding for location
-        location_f = []
-        for location_one, map_f_one in zip(location, map_f):
-            location_f.append(map_f_one[location_one])
-        location_f = torch.stack(location_f, dim=0)  # (B, L, 128)
-        # positional encoding for bounding box
-        bbox_f = self.pe_bbox(bbox)
-        # positional encoding for velocity
-        velocity_f = self.pe_velocity(velocity)
-        object_f = torch.cat([category_f, location_f, bbox_f, velocity_f], dim=-1)  # (B, L, 512)
-        object_f = self.fc_object(object_f)  # (B, L, d_model)
-        input_f = torch.cat([self.q.expand(B, 1, self.d_model),
-                             self.pe(object_f)],
-                            dim=1)  # (B, L + 1, d_model)
+    def forward(self, samples, lengths):
+        samples['location'] = self._discrete_loc(samples['location'])
+        B, L, *_ = samples["category"].shape
 
         fields = ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']
-        step_loss = {k: [] for k in fields}
+        all_loss = {k: torch.zeros(B, device=lengths.device) for k in fields}
         for step in range(L):
             # keep the first step objects
-            gt = {}
-            for k in ['category', 'location', 'bbox', 'velocity']:
-                gt[k] = samples[k][:, step]
-            loss = self._forward_step(input_f, map_f, step, gt, loss_fn)  # (B, 1)
+            self.optimizer.zero_grad()
+            loss = self._forward_step(samples, step)  # (B, )
+            mask = (lengths > step)
             for k, v in loss.items():
-                step_loss[k].append(v)
-        length_mask = get_length_mask(lengths)
-        loss = {}
+                loss[k] = loss[k] * mask
+                all_loss[k] += loss[k].detach()
+            loss['all'].backward()
+            self.optimizer.step()
+            self.scheduler.step()
+            self.iters += 1
+
         for k in fields:
-            step_loss[k] = torch.cat(step_loss[k], dim=-1)  # (B, L)
-            step_loss[k] = step_loss[k] * length_mask
-            loss[k] = step_loss[k].sum(dim=-1) / lengths
-            loss[k] = loss[k].mean()
-        self.iters += 1
-        return loss
+            all_loss[k] /= lengths
+        return all_loss
 
     def generate(self, samples, lengths, condition):
         # Unpack the samples

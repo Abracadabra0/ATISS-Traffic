@@ -65,7 +65,7 @@ def get_length_mask(lengths):
     L = lengths.max()
     idx_range = torch.arange(L, device=lengths.device).expand(N, -1)
     lengths = lengths.reshape(-1, 1).expand(-1, L)
-    return idx_range >= lengths
+    return idx_range < lengths
 
 
 def sample_from_dmll(pred, num_classes=256):

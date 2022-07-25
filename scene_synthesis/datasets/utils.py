@@ -31,7 +31,7 @@ def cartesian_to_polar(vector: np.array) -> np.array:
     return np.array([rho, theta])
 
 
-def collate_train(samples, keep_all=False):
+def collate_test(samples, keep_all=False):
     lengths = [len(sample['category']) for sample in samples]
     if not keep_all:
         keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
@@ -56,3 +56,12 @@ def collate_train(samples, keep_all=False):
     collated['map'] = torch.stack([sample['map'] for sample in samples])
 
     return collated, torch.tensor(keep_lengths), gt
+
+
+def collate_train(samples):
+    lengths = [len(sample['category']) for sample in samples]
+    collated = {}
+    for k in ['category', 'location', 'bbox', 'velocity']:
+        collated[k] = pad_sequence([sample[k] for sample in samples], batch_first=True)
+    collated['map'] = torch.stack([sample['map'] for sample in samples])
+    return collated, torch.tensor(lengths)

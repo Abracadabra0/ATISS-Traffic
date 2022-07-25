@@ -209,11 +209,36 @@ class AutoregressiveTransformer(nn.Module):
         }
         return probs, preds
 
-    def forward(self, samples, lengths, gt, loss_fn):
+    def _forward_step(self, input_f, map_f, step, gt, loss_fn):
+        # masking
+        output_f = self.transformer_encoder(input_f[:, :(step + 1)])  # (B, step + 1, d_model)
+
+        # max pooling
+        output_f = output_f.max(dim=1)[0]  # (B, d_model)
+
+        # predict category
+        prob_category = self.prob_category(torch.cat([output_f, map_f.mean(dim=1)], dim=-1))  # (B, 4)
+        prob_category = Categorical(logits=prob_category)
+
+        loss_select = []
+        for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
+            probs, _ = self._decode(decoder, output_f, map_f)
+            probs["category"] = prob_category
+            loss_components = loss_fn(probs, gt)
+            loss_select.append(loss_components)
+
+        loss = {}
+        for k in ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']:
+            loss[k] = loss_select[0][k]
+            loss[k] = torch.where(gt['category'] == 2, loss_select[1][k], loss[k])
+            loss[k] = torch.where(gt['category'] == 3, loss_select[2][k], loss[k])
+
+        return loss
+
+    def forward(self, samples, lengths, loss_fn):
         # Unpack the samples
         category = samples["category"]  # (B, L)
         location = self._discrete_loc(samples['location'])  # (B, L)
-        gt['location'] = self._discrete_loc(gt['location'])
         bbox = samples["bbox"]
         velocity = samples["velocity"]
         maps = samples["map"]
@@ -240,31 +265,23 @@ class AutoregressiveTransformer(nn.Module):
                              self.pe(object_f)],
                             dim=1)  # (B, L + 1, d_model)
 
-        # Compute the features using causal masking
-        length_mask = get_length_mask(lengths + 1)
-        output_f = self.transformer_encoder(input_f, src_key_padding_mask=length_mask)  # (B, L + 1, d_model)
-
-        # max pooling
-        output_f = output_f.max(dim=1)[0]  # (B, d_model)
-
-        # predict category
-        prob_category = self.prob_category(torch.cat([output_f, map_f.mean(dim=1)], dim=-1))  # (B, 4)
-        prob_category = Categorical(logits=prob_category)
-
-        loss_select = []
-        for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
-            probs, _ = self._decode(decoder, output_f, map_f)
-            probs["category"] = prob_category
-            loss_components = loss_fn(probs, gt)
-            loss_select.append(loss_components)
-
+        fields = ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']
+        step_loss = {k: [] for k in fields}
+        for step in range(L):
+            # keep the first step objects
+            gt = {}
+            for k in ['category', 'location', 'bbox', 'velocity']:
+                gt[k] = samples[k][:, step]
+            loss = self._forward_step(input_f, map_f, step, gt, loss_fn)  # (B, 1)
+            for k, v in loss.items():
+                step_loss[k].append(v)
+        length_mask = get_length_mask(lengths)
         loss = {}
-        for k in ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']:
-            loss[k] = loss_select[0][k]
-            loss[k] = torch.where(gt['category'] == 2, loss_select[1][k], loss[k])
-            loss[k] = torch.where(gt['category'] == 3, loss_select[2][k], loss[k])
+        for k in fields:
+            step_loss[k] = torch.cat(step_loss[k], dim=-1)  # (B, L)
+            step_loss[k] = step_loss[k] * length_mask
+            loss[k] = step_loss[k].sum(dim=-1) / lengths
             loss[k] = loss[k].mean()
-
         self.iters += 1
         return loss
 

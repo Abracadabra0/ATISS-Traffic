@@ -111,9 +111,9 @@ class AutoregressiveTransformer(nn.Module):
         row = torch.div(loc, 100, rounding_mode='trunc')
         col = loc - row * 100
         x = col * 0.8 - 40
-        x = x + torch.rand(*x.shape) * 0.8
+        x = x + torch.rand(*x.shape).to(x.device) * 0.8
         y = 40 - row * 0.8
-        y = y + torch.rand(*y.shape) * 0.8
+        y = y + torch.rand(*y.shape).to(y.device) * 0.8
         return torch.stack([x, y], dim=-1)
 
     def _mix_lognormal(self, f, event_shape):
@@ -136,8 +136,8 @@ class AutoregressiveTransformer(nn.Module):
         f = f[..., self.n_mixture:].reshape(B, self.n_mixture, 3)
         cos = f[..., 0:1]
         sin = f[..., 1:2]
-        kappa = torch.exp(f[..., 2:3])
-        norm = torch.sqrt(cos ** 2 + sin ** 2)
+        kappa = 7 + torch.exp(f[..., 2:3])
+        norm = torch.sqrt(cos ** 2 + sin ** 2) + 1e-3
         cos = cos / norm
         sin = sin / norm
         mu = torch.arcsin(sin)

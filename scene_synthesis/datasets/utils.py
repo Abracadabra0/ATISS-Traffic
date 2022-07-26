@@ -34,25 +34,17 @@ def cartesian_to_polar(vector: np.array) -> np.array:
 def collate_test(samples, keep_all=False):
     lengths = [len(sample['category']) for sample in samples]
     if not keep_all:
-        keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
+        keep_lengths = [np.random.randint(0, length - 1) for length in lengths]
     else:
-        keep_lengths = lengths.copy()
+        keep_lengths = lengths
     collated = {}
     gt = {}
     for k in ['category', 'location', 'bbox', 'velocity']:
         collated[k] = pad_sequence([sample[k][:l] for sample, l in zip(samples, keep_lengths)], batch_first=True)
         gt_list = []
         for sample, l in zip(samples, keep_lengths):
-            try:
-                gt_list.append(sample[k][l])
-            except IndexError:
-                if k == 'category':
-                    gt_list.append(torch.tensor(0))
-                elif k == 'bbox':
-                    gt_list.append(torch.tensor([0., 0., 0.]))
-                else:
-                    gt_list.append(torch.tensor([0., 0.]))
-        gt[k] = torch.stack(gt_list)
+            gt_list.append(sample[k][l])
+            gt[k] = torch.stack(gt_list)
     collated['map'] = torch.stack([sample['map'] for sample in samples])
 
     return collated, torch.tensor(keep_lengths), gt

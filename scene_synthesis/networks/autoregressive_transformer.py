@@ -274,7 +274,7 @@ class AutoregressiveTransformer(nn.Module):
 
         return loss
 
-    def forward(self, samples, lengths):
+    def forward(self, samples, lengths, train_run=True):
         samples['location'] = self._discrete_loc(samples['location'])
         B, L, *_ = samples["category"].shape
 
@@ -282,17 +282,19 @@ class AutoregressiveTransformer(nn.Module):
         all_loss = {k: torch.zeros(B, device=lengths.device) for k in fields}
         for step in range(L):
             # keep the first step objects
-            self.optimizer.zero_grad()
+            if train_run:
+                self.optimizer.zero_grad()
             loss = self._forward_step(samples, step)  # (B, )
             mask = (lengths > step)
             for k in fields:
                 loss[k] = loss[k] * mask
                 all_loss[k] += loss[k].detach()
-            loss['all'].mean().backward()
-            torch.nn.utils.clip_grad_norm_(self.parameters(), 1)
-            self.optimizer.step()
-            self.scheduler.step()
-            self.iters += 1
+            if train_run:
+                loss['all'].mean().backward()
+                torch.nn.utils.clip_grad_norm_(self.parameters(), 1)
+                self.optimizer.step()
+                self.scheduler.step()
+                self.iters += 1
 
         for k in fields:
             all_loss[k] = (all_loss[k] / lengths).mean()

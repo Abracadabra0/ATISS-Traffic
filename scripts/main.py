@@ -15,7 +15,6 @@ from scene_synthesis.networks.autoregressive_transformer import AutoregressiveTr
 import numpy as np
 from scene_synthesis.losses.nll import WeightedNLL, lr_func
 import time
-torch.autograd.set_detect_anomaly(True)
  
 if __name__ == '__main__':
     device = torch.device(0)

@@ -10,6 +10,8 @@ import math
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical, Bernoulli, LogNormal, VonMises, Independent, MixtureSameFamily
+from torch.optim import Adam
+from torch.optim.lr_scheduler import LambdaLR
 from .utils import FixedPositionalEncoding, TrainablePE, get_mlp, get_length_mask
 from .feature_extractors import Extractor
 
@@ -62,7 +64,7 @@ class Decoder(nn.Module):
 
 
 class AutoregressiveTransformer(nn.Module):
-    def __init__(self, loss_fn=None, optimizer=None, scheduler=None):
+    def __init__(self, loss_fn=None, lr=None, scheduler=None):
         super().__init__()
         # Build a transformer encoder
         self.transformer_encoder = nn.Transformer(
@@ -102,8 +104,10 @@ class AutoregressiveTransformer(nn.Module):
 
         self.register_buffer('iters', torch.tensor(0))
         self.loss_fn = loss_fn
-        self.optimizer = optimizer
-        self.scheduler = scheduler
+        if lr is not None:
+            self.optimizer = Adam(self.parameters(), lr=lr)
+        if scheduler is not None:
+            self.scheduler = LambdaLR(self.optimizer, scheduler)
 
     def _discrete_loc(self, loc):
         row = ((40 - loc[..., 1]) / 0.8).long()
@@ -125,8 +129,7 @@ class AutoregressiveTransformer(nn.Module):
         mixture = Categorical(logits=f[..., :self.n_mixture])
         f = f[..., self.n_mixture:].reshape(B, self.n_mixture, 2 * event_shape)
         mu = f[..., :event_shape]
-        sigma = torch.sigmoid(f[..., event_shape:]) * 0.5
-        sigma = torch.clamp(sigma, min=0.1, max=10)
+        sigma = torch.sigmoid(torch.clamp(f[..., event_shape:], min=-4.5)) * 0.5
         prob = LogNormal(mu, sigma)  # batch_shape = (B, n_mixture, event_shape)
         prob = Independent(prob, reinterpreted_batch_ndims=1)  # batch_shape = (B, n_mixture)
         prob = MixtureSameFamily(mixture, prob)  # batch_shape = B, event_shape
@@ -139,7 +142,7 @@ class AutoregressiveTransformer(nn.Module):
         f = f[..., self.n_mixture:].reshape(B, self.n_mixture, 3)
         cos = f[..., 0:1]
         sin = f[..., 1:2]
-        kappa = 7 + torch.exp(f[..., 2:3])
+        kappa = 7 + torch.exp(torch.clamp(f[..., 2:3], max=4.5))
         norm = torch.sqrt(cos ** 2 + sin ** 2) + 1e-3
         cos = cos / norm
         sin = sin / norm
@@ -282,16 +285,17 @@ class AutoregressiveTransformer(nn.Module):
             self.optimizer.zero_grad()
             loss = self._forward_step(samples, step)  # (B, )
             mask = (lengths > step)
-            for k, v in loss.items():
+            for k in fields:
                 loss[k] = loss[k] * mask
                 all_loss[k] += loss[k].detach()
-            loss['all'].backward()
+            loss['all'].mean().backward()
+            torch.nn.utils.clip_grad_norm_(self.parameters(), 1)
             self.optimizer.step()
             self.scheduler.step()
             self.iters += 1
 
         for k in fields:
-            all_loss[k] /= lengths
+            all_loss[k] = (all_loss[k] / lengths).mean()
         return all_loss
 
     def generate(self, samples, lengths, condition):

@@ -1,6 +1,7 @@
 import sys
 
-sys.path.append('/shared/perception/personals/yefanlin/project/ATISS-Traffic')
+# sys.path.append('/shared/perception/personals/yefanlin/project/ATISS-Traffic')
+sys.path.append('/projects/perception/personals/yefanlin/project/ATISS-Traffic')
 
 import os
 import torch
@@ -11,11 +12,11 @@ from torch.optim.lr_scheduler import LambdaLR
 from scene_synthesis.datasets.nuScenes import NuScenesDataset
 from scene_synthesis.datasets.utils import collate_train
 from scene_synthesis.networks.autoregressive_transformer import AutoregressiveTransformer
-from torch.optim import Adam
 import numpy as np
 from scene_synthesis.losses.nll import WeightedNLL, lr_func
 import time
-
+torch.autograd.set_detect_anomaly(True)
+ 
 if __name__ == '__main__':
     device = torch.device(0)
     np.random.seed(0)
@@ -24,9 +25,7 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
     dataset = NuScenesDataset("../../data/nuScene-processed", train=True)
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=8, collate_fn=collate_train)
-    model = AutoregressiveTransformer()
-    model.to(device)
+    dataloader = DataLoader(dataset, batch_size=20, shuffle=True, num_workers=4, collate_fn=collate_train)
     loss_fn = WeightedNLL(weights={
         'category': 0.1,
         'location': 1.,
@@ -37,9 +36,9 @@ if __name__ == '__main__':
         'omega': 0.1
     })
     loss_fn.to(device)
-    optimizer = Adam(model.parameters(), lr=1e-3)
-    scheduler = LambdaLR(optimizer, lr_func(500))
-    n_epochs = 200
+    model = AutoregressiveTransformer(loss_fn=loss_fn, lr=1e-3, scheduler=lr_func(500))
+    model.to(device)
+    n_epochs = 20
     iters = 0
 
     for epoch in range(n_epochs):
@@ -49,17 +48,13 @@ if __name__ == '__main__':
                 samples[k] = samples[k].to(device)
             lengths = lengths.to(device)
 
-            optimizer.zero_grad()
-            loss = model(samples, lengths, loss_fn)
+            loss = model(samples, lengths)
             print(iters, loss['all'].item())
             for k, v in loss.items():
                 writer.add_scalar(f'loss/{k}', loss[k], iters)
-            loss['all'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
-            optimizer.step()
-            scheduler.step()
             iters += 1
-        if (epoch + 1) % 50 == 0:
+        
+        if (epoch + 1) % 5 == 0:
             model.cpu()
             torch.save(model.state_dict(), os.path.join('./ckpts', timestamp + f'({epoch})'))
             model.to(device)

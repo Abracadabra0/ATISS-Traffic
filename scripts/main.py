@@ -26,7 +26,7 @@ if __name__ == '__main__':
     train_dataset = NuScenesDataset("../../data/nuScene-processed/train")
     train_dataloader = DataLoader(train_dataset, batch_size=20, shuffle=True, num_workers=4, collate_fn=collate_train)
     test_dataset = NuScenesDataset("../../data/nuScene-processed/test")
-    test_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_train)
+    test_dataloader = DataLoader(test_dataset, batch_size=20, shuffle=False, num_workers=4, collate_fn=collate_train)
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
         'location': 1.,
@@ -37,7 +37,7 @@ if __name__ == '__main__':
         'omega': 0.2
     })
     loss_fn.to(device)
-    model = AutoregressiveTransformer(loss_fn=loss_fn, lr=1e-3, scheduler=lr_func(500))
+    model = AutoregressiveTransformer(loss_fn=loss_fn, lr=1e-3, scheduler=lr_func(500), logger=writer)
     model.to(device)
     n_epochs = 20
     iters = 0
@@ -74,7 +74,7 @@ if __name__ == '__main__':
 
         if (epoch + 1) % 5 == 0:
             model.cpu()
-            torch.save(model.state_dict(), os.path.join('./ckpts', timestamp + f'({epoch})'))
+            torch.save(model.state_dict(), os.path.join('./ckpts', timestamp + f'-{epoch}'))
             model.to(device)
 
     model.cpu()

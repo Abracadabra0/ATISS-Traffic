@@ -64,7 +64,7 @@ class Decoder(nn.Module):
 
 
 class AutoregressiveTransformer(nn.Module):
-    def __init__(self, loss_fn=None, lr=None, scheduler=None):
+    def __init__(self, loss_fn=None, lr=None, scheduler=None, logger=None):
         super().__init__()
         # Build a transformer encoder
         self.transformer_encoder = nn.Transformer(
@@ -108,6 +108,7 @@ class AutoregressiveTransformer(nn.Module):
             self.optimizer = Adam(self.parameters(), lr=lr)
         if scheduler is not None:
             self.scheduler = LambdaLR(self.optimizer, scheduler)
+        self.logger = logger
 
     def _discrete_loc(self, loc):
         row = ((40 - loc[..., 1]) / 0.8).long()
@@ -287,7 +288,7 @@ class AutoregressiveTransformer(nn.Module):
             loss = self._forward_step(samples, step)  # (B, )
             mask = (lengths > step)
             for k in fields:
-                loss[k] = loss[k] * mask
+                loss[k] = (loss[k] * mask) / lengths
                 all_loss[k] += loss[k].detach()
             if train_run:
                 loss['all'].mean().backward()
@@ -297,7 +298,7 @@ class AutoregressiveTransformer(nn.Module):
                 self.iters += 1
 
         for k in fields:
-            all_loss[k] = (all_loss[k] / lengths).mean()
+            all_loss[k] = all_loss[k].mean()
         return all_loss
 
     def generate(self, samples, lengths, condition):

@@ -1,6 +1,9 @@
+import cv2
 import numpy as np
 import torch
 from torch.nn.utils.rnn import pad_sequence
+from torchvision.transforms import functional as F
+from torchvision.transforms import RandomRotation
 
 def crop_image(image: np.array,
                x_px: int,
@@ -31,29 +34,88 @@ def cartesian_to_polar(vector: np.array) -> np.array:
     return np.array([rho, theta])
 
 
-def collate_test(samples, keep_all=False):
+def collate_test(samples, keep='random'):
     lengths = [len(sample['category']) for sample in samples]
-    if not keep_all:
-        keep_lengths = [np.random.randint(0, length - 1) for length in lengths]
-    else:
+    if keep == 'random':
+        keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
+    elif keep == 'all':
         keep_lengths = lengths
+    else:
+        keep_lengths = [0 for _ in lengths]
     collated = {}
-    gt = {}
     for k in ['category', 'location', 'bbox', 'velocity']:
         collated[k] = pad_sequence([sample[k][:l] for sample, l in zip(samples, keep_lengths)], batch_first=True)
-        gt_list = []
-        for sample, l in zip(samples, keep_lengths):
-            gt_list.append(sample[k][l])
-            gt[k] = torch.stack(gt_list)
     collated['map'] = torch.stack([sample['map'] for sample in samples])
 
+    return collated, torch.tensor(keep_lengths)
+
+
+def collate_train(samples, window_size=3):
+    fields = ['category', 'location', 'bbox', 'velocity']
+    # random rotation
+    angles = np.random.rand(len(samples)) * 360
+    for sample, angle in zip(samples, angles):
+        sample['map'] = F.rotate(sample['map'], angle)
+        rad = angle / 180 * np.pi
+        rotation_mat = torch.tensor([[np.cos(rad), np.sin(rad)], [-np.sin(rad), np.cos(rad)]], dtype=torch.float32)
+        sample['location'] = sample['location'] @ rotation_mat
+        sample['bbox'][:, -1] += rad
+        sample['bbox'][:, -1] = torch.where(sample['bbox'][:, -1] >= 2 * np.pi, sample['bbox'][:, -1] - 2 * np.pi, sample['bbox'][:, -1])
+        sample['velocity'][:, -1] += rad
+        sample['velocity'][:, -1] = torch.where(sample['velocity'][:, -1] >= 2 * np.pi, sample['velocity'][:, -1] - 2 * np.pi, sample['velocity'][:, -1])
+        # filter out objects fallen outside the image
+        r = sample['location'].norm(dim=1)
+        mask = (r < 40)
+        for field in fields:
+            sample[field] = sample[field][mask]
+        # reorder
+        idx = list(range(len(sample['category']) - 1))
+        idx.sort(key=lambda x: (-sample['location'][x, 1], sample['location'][x, 0]))
+        idx.append(len(sample['category']) - 1)
+        for field in ['category', 'location', 'bbox', 'velocity']:
+            sample[field] = sample[field][idx]
+    # random masking
+    lengths = [len(sample['category']) for sample in samples]
+    window_size = min(window_size, min(lengths))
+    keep_lengths = [np.random.randint(0, length - window_size + 1) for length in lengths]
+    collated = {field: [] for field in fields}
+    gt = {field: [] for field in fields}
+    maps = []
+    for sample, keep_length in zip(samples, keep_lengths):
+        for field in fields:
+            collated[field].append(sample[field][:keep_length])
+            gt[field].append(sample[field][keep_length:keep_length + window_size])
+        occupancy = rasterize_objects(sample['category'][:keep_length],
+                                      sample['location'][:keep_length],
+                                      sample['bbox'][:keep_length])
+        maps.append(torch.cat([sample['map'], occupancy], dim=0))
+    for field in fields:
+        collated[field] = pad_sequence(collated[field], batch_first=True)
+        gt[field] = pad_sequence(gt[field], batch_first=True)
+    collated['map'] = torch.stack(maps)
     return collated, torch.tensor(keep_lengths), gt
 
 
-def collate_train(samples):
-    lengths = [len(sample['category']) for sample in samples]
-    collated = {}
-    for k in ['category', 'location', 'bbox', 'velocity']:
-        collated[k] = pad_sequence([sample[k] for sample in samples], batch_first=True)
-    collated['map'] = torch.stack([sample['map'] for sample in samples])
-    return collated, torch.tensor(lengths)
+def rasterize_objects(category, location, bbox):
+    category = category.numpy()
+    location = location.numpy()
+    bbox = bbox.numpy()
+    maps = np.zeros((3, 320, 320), dtype=np.int8)
+    for category_one, location_one, bbox_one in zip(category, location, bbox):
+        if category_one == 0:
+            continue
+        layer = category_one - 1
+        w, l, theta = bbox_one
+        corners = np.array([[l / 2, w / 2],
+                            [-l / 2, w / 2],
+                            [-l / 2, -w / 2],
+                            [l / 2, -w / 2]])
+        rotation = np.array([[np.cos(theta), np.sin(theta)],
+                             [-np.sin(theta), np.cos(theta)]])
+        corners = np.dot(corners, rotation) + location_one
+        corners[:, 0] = corners[:, 0] + 40
+        corners[:, 1] = 40 - corners[:, 1]
+        corners = np.floor(corners / 0.25).astype(int)
+        cv2.fillConvexPoly(maps[layer], corners, 255)
+    maps = maps / 255
+    return torch.tensor(maps, dtype=torch.float32)

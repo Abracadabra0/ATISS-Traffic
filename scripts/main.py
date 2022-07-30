@@ -44,33 +44,16 @@ if __name__ == '__main__':
 
     for epoch in range(n_epochs):
         print(f'----------------Epoch {epoch}----------------')
-        for samples, lengths in train_dataloader:
+        for samples, lengths, gt in train_dataloader:
             for k in samples:
                 samples[k] = samples[k].to(device)
             lengths = lengths.to(device)
 
-            loss = model(samples, lengths)
+            loss = model(samples, lengths, gt)
             print(iters, loss['all'].item())
             for k, v in loss.items():
                 writer.add_scalar(f'loss/{k}', loss[k], iters)
             iters += 1
-
-        model.eval()
-        test_loss = 0
-        test_iters = 0
-        with torch.no_grad():
-            for samples, lengths in test_dataloader:
-                for k in samples:
-                    samples[k] = samples[k].to(device)
-                lengths = lengths.to(device)
-
-                loss = model(samples, lengths, train_run=False)
-                print(f'test {test_iters}: {loss["all"].item()}')
-                test_loss += loss["all"].item()
-                test_iters += 1
-            test_loss /= test_iters
-            writer.add_scalar(f'test', test_loss, epoch)
-        model.train()
 
         if (epoch + 1) % 5 == 0:
             model.cpu()

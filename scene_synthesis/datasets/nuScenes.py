@@ -3,6 +3,7 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import os
+import cv2
 from pyquaternion import Quaternion
 from nuscenes.map_expansion.map_api import NuScenesMap
 from nuscenes.nuscenes import NuScenes
@@ -13,8 +14,7 @@ from .utils import get_homogeneous_matrix, cartesian_to_polar
 class NuScenesDataset(Dataset):
     layer_names = ['drivable_area',
                    'ped_crossing',
-                   'walkway',
-                   'road_divider']
+                   'walkway']
     Q = 0
     PEDESTRIAN = 1
     BICYCLIST = 2
@@ -42,8 +42,10 @@ class NuScenesDataset(Dataset):
     def preprocess(cls, dataroot: str,
                    version: str,
                    output_path: str,
+                   resolution: float = 0.25,
                    axes_limit: int = 40):
         nusc = NuScenes(version=version, dataroot=dataroot, verbose=False)
+        wl = int(axes_limit * 2 / resolution)
         os.makedirs(output_path, exist_ok=True)
         os.chdir(output_path)
         os.makedirs('train', exist_ok=True)
@@ -81,6 +83,10 @@ class NuScenesDataset(Dataset):
                 patch_angle = math.degrees(Quaternion(pose['rotation']).yaw_pitch_roll[0])
                 map_mask = nusc_map.get_map_mask(patch_box, patch_angle, cls.layer_names, canvas_size=None)
                 map_mask = np.flip(map_mask, 1)
+                scaled = []
+                for layer in map_mask:
+                    scaled.append(cv2.resize(layer, (wl, wl)))
+                map_mask = np.stack(scaled, axis=0)
                 # convert to torch.tensor and save it
                 map_mask = torch.tensor(map_mask.copy(), dtype=torch.float32)
                 torch.save(map_mask, 'map')

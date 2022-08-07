@@ -36,9 +36,9 @@ class Decoder(nn.Module):
         )
         self.wl = get_mlp(128, (1 + 2 + 2) * self.n_mixture)
         self.theta = get_mlp(128, (1 + 2 + 1) * self.n_mixture)
-        self.moving = get_mlp(128 + 192, 1)
-        self.s = get_mlp(128 + 192, (1 + 1 + 1) * self.n_mixture)
-        self.omega = get_mlp(128 + 192, (1 + 2 + 1) * self.n_mixture)
+        self.moving = get_mlp(self.d_model + 128 + 192, 1)
+        self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 + 1) * self.n_mixture)
+        self.omega = get_mlp(self.d_model + 128 + 192, (1 + 2 + 1) * self.n_mixture)
 
     def forward(self, f, field):
         if field == 'location':
@@ -201,6 +201,7 @@ class AutoregressiveTransformer(nn.Module):
         bbox_f = self.pe_bbox(pred_bbox)
 
         f_in = torch.cat([
+            self.d_model,
             location_f,
             bbox_f
         ], dim=-1)  # (B, 128 + 192)

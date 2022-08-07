@@ -15,7 +15,7 @@ from scene_synthesis.networks.autoregressive_transformer import AutoregressiveTr
 import numpy as np
 from scene_synthesis.losses.nll import WeightedNLL, lr_func
 import time
- 
+
 if __name__ == '__main__':
     device = torch.device(0)
     np.random.seed(0)
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     os.makedirs('./ckpts', exist_ok=True)
     train_dataset = NuScenesDataset("../../data/nuScene-processed/train")
     loss_fn = WeightedNLL(weights={
-        'category': 1.,
+        'category': 0.05,
         'location': 1.,
         'wl': 0.4,
         'theta': 0.4,
@@ -37,8 +37,8 @@ if __name__ == '__main__':
     model = AutoregressiveTransformer(loss_fn=loss_fn, lr=1e-3, scheduler=lr_func(500), logger=writer)
     model.to(device)
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4,
-                                collate_fn=collate_train)
-    n_epochs = 300
+                                  collate_fn=collate_train)
+    n_epochs = 400
     iters = 0
 
     for epoch in range(n_epochs):

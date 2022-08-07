@@ -34,7 +34,7 @@ def cartesian_to_polar(vector: np.array) -> np.array:
     return np.array([rho, theta])
 
 
-def collate_test(samples, keep='random'):
+def collate_test(samples, keep='random', append=False):
     fields = ['category', 'location', 'bbox', 'velocity']
     # random masking
     lengths = [len(sample['category']) for sample in samples]
@@ -52,14 +52,19 @@ def collate_test(samples, keep='random'):
         occupancy = rasterize_objects(sample['category'][:keep_length],
                                       sample['location'][:keep_length],
                                       sample['bbox'][:keep_length])
-        maps.append(torch.cat([sample['map'][:3], occupancy], dim=0))
+        if not append:
+            orientation = sample['map'][-1:]
+            sample['map'] = torch.cat([sample['map'][:-1],
+                                       torch.sin(orientation) * orientation,
+                                       torch.cos(orientation) * orientation], dim=0)
+        maps.append(torch.cat([sample['map'][:6], occupancy], dim=0))
     for field in fields:
         collated[field] = pad_sequence(collated[field], batch_first=True)
     collated['map'] = torch.stack(maps)
     return collated, torch.tensor(keep_lengths)
 
 
-def collate_train(samples, window_size=1):
+def collate_train(samples, window_size=4):
     fields = ['category', 'location', 'bbox', 'velocity']
     # random rotation
     angles = np.random.rand(len(samples)) * 360
@@ -69,7 +74,9 @@ def collate_train(samples, window_size=1):
         rad = angle / 180 * np.pi
         rotation_mat = torch.tensor([[np.cos(rad), np.sin(rad)], [-np.sin(rad), np.cos(rad)]], dtype=torch.float32)
         orientation += rad
-        sample['map'] = torch.cat([sample['map'][:-1], torch.sin(orientation), torch.cos(orientation)], dim=0)
+        sample['map'] = torch.cat([sample['map'][:-1],
+                                   torch.sin(orientation) * orientation,
+                                   torch.cos(orientation) * orientation], dim=0)
         sample['location'] = sample['location'] @ rotation_mat
         sample['bbox'][:, -1] += rad
         sample['velocity'][:, -1] += rad

@@ -1,7 +1,7 @@
 import sys
 
-# sys.path.append('/shared/perception/personals/yefanlin/project/ATISS-Traffic')
-sys.path.append('/projects/perception/personals/yefanlin/project/ATISS-Traffic')
+sys.path.append('/shared/perception/personals/yefanlin/project/ATISS-Traffic')
+# sys.path.append('/projects/perception/personals/yefanlin/project/ATISS-Traffic')
 
 import os
 import torch
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     os.makedirs('./ckpts', exist_ok=True)
     train_dataset = NuScenesDataset("../../data/nuScene-processed/train")
     loss_fn = WeightedNLL(weights={
-        'category': 0.2,
+        'category': 1.,
         'location': 1.,
         'wl': 0.4,
         'theta': 0.4,
@@ -36,14 +36,13 @@ if __name__ == '__main__':
     loss_fn.to(device)
     model = AutoregressiveTransformer(loss_fn=loss_fn, lr=1e-3, scheduler=lr_func(500), logger=writer)
     model.to(device)
+    train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4,
+                                collate_fn=collate_train)
     n_epochs = 300
     iters = 0
 
     for epoch in range(n_epochs):
         print(f'----------------Epoch {epoch}----------------')
-        windows_size = max(1 + n_epochs // 2, 10)
-        train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4,
-                                      collate_fn=collate_train(windows_size))
         for samples, lengths, gt in train_dataloader:
             for k in samples:
                 samples[k] = samples[k].to(device)

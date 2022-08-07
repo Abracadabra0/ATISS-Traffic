@@ -34,11 +34,11 @@ class Decoder(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1)),
         )
-        self.wl = get_mlp(self.d_model + 128, (1 + 2 + 2) * self.n_mixture)
-        self.theta = get_mlp(self.d_model + 128, (1 + 2 + 1) * self.n_mixture)
-        self.moving = get_mlp(self.d_model + 128 + 192, 1)
-        self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 + 1) * self.n_mixture)
-        self.omega = get_mlp(self.d_model + 128 + 192, (1 + 2 + 1) * self.n_mixture)
+        self.wl = get_mlp(128, (1 + 2 + 2) * self.n_mixture)
+        self.theta = get_mlp(128, (1 + 2 + 1) * self.n_mixture)
+        self.moving = get_mlp(128 + 192, 1)
+        self.s = get_mlp(128 + 192, (1 + 1 + 1) * self.n_mixture)
+        self.omega = get_mlp(128 + 192, (1 + 2 + 1) * self.n_mixture)
 
     def forward(self, f, field):
         if field == 'location':
@@ -49,7 +49,7 @@ class Decoder(nn.Module):
             out = out.flatten(1)  # (B, 6400)
             return out
         if field == 'wl':
-            # f: (B, d_model + 128)
+            # f: (B, 128)
             out = self.wl(f)
             return out
         if field == 'theta':
@@ -82,7 +82,7 @@ class AutoregressiveTransformer(nn.Module):
         self.q = nn.Parameter(torch.randn(self.d_model))
 
         # extract features from maps
-        self.feature_extractor = Extractor(6)
+        self.feature_extractor = Extractor(9)
 
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)
@@ -184,9 +184,8 @@ class AutoregressiveTransformer(nn.Module):
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
 
         f_in = torch.cat([
-            output_f,
             location_f
-        ], dim=-1)  # (B, d_model + 128)
+        ], dim=-1)  # (B, 128)
         f_out = decoder(f_in, 'wl')
         prob_wl = self._mix_lognormal(f=f_out,
                                       event_shape=2)
@@ -202,10 +201,9 @@ class AutoregressiveTransformer(nn.Module):
         bbox_f = self.pe_bbox(pred_bbox)
 
         f_in = torch.cat([
-            output_f,
             location_f,
             bbox_f
-        ], dim=-1)  # (B, d_model + 128 + 192)
+        ], dim=-1)  # (B, 128 + 192)
         f_out = decoder(f_in, 'moving')
         prob_moving = Bernoulli(logits=f_out)
         f_out = decoder(f_in, 's')
@@ -340,7 +338,8 @@ class AutoregressiveTransformer(nn.Module):
 
         fields = ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']
         all_loss = {k: torch.zeros(B, device=lengths.device) for k in fields}
-        for step in range(gt['category'].size(1)):
+        window_size = gt['category'].size(1)
+        for step in range(window_size):
             # keep the first step objects
             self.optimizer.zero_grad()
             gt_step = {}
@@ -378,10 +377,10 @@ class AutoregressiveTransformer(nn.Module):
             self.iters += 1
 
         for k in fields:
-            all_loss[k] = all_loss[k].mean()
+            all_loss[k] = all_loss[k].mean() / window_size
         return all_loss
 
-    def generate(self, samples, condition, n_sample):
+    def generate(self, samples, lengths, condition, n_sample):
         # Unpack the samples
         # B = 1
         self.eval()
@@ -414,8 +413,9 @@ class AutoregressiveTransformer(nn.Module):
                                  self.pe(object_f)],
                                 dim=1)  # (B, L + 1, d_model)
 
+            mask = get_length_mask(lengths + 1)
             # Compute the features using causal masking
-            output_f = self.transformer_encoder(input_f)  # (B, L + 1, d_model)
+            output_f = self.transformer_encoder(input_f, src_key_padding_mask=mask)  # (B, L + 1, d_model)
             # max pooling
             output_f = output_f.max(dim=1)[0]  # (B, d_model)
 

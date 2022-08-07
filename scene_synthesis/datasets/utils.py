@@ -35,18 +35,27 @@ def cartesian_to_polar(vector: np.array) -> np.array:
 
 
 def collate_test(samples, keep='random'):
+    fields = ['category', 'location', 'bbox', 'velocity']
+    # random masking
     lengths = [len(sample['category']) for sample in samples]
-    if keep == 'random':
-        keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
-    elif keep == 'all':
+    if keep == 'all':
         keep_lengths = lengths
+    elif keep == 'random':
+        keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
     else:
-        keep_lengths = [0 for _ in lengths]
-    collated = {}
-    for k in ['category', 'location', 'bbox', 'velocity']:
-        collated[k] = pad_sequence([sample[k][:l] for sample, l in zip(samples, keep_lengths)], batch_first=True)
-    collated['map'] = torch.stack([sample['map'] for sample in samples])
-
+        keep_lengths = [0 for length in lengths]
+    collated = {field: [] for field in fields}
+    maps = []
+    for sample, keep_length in zip(samples, keep_lengths):
+        for field in fields:
+            collated[field].append(sample[field][:keep_length])
+        occupancy = rasterize_objects(sample['category'][:keep_length],
+                                      sample['location'][:keep_length],
+                                      sample['bbox'][:keep_length])
+        maps.append(torch.cat([sample['map'][:3], occupancy], dim=0))
+    for field in fields:
+        collated[field] = pad_sequence(collated[field], batch_first=True)
+    collated['map'] = torch.stack(maps)
     return collated, torch.tensor(keep_lengths)
 
 
@@ -56,13 +65,14 @@ def collate_train(samples, window_size=3):
     angles = np.random.rand(len(samples)) * 360
     for sample, angle in zip(samples, angles):
         sample['map'] = F.rotate(sample['map'], angle)
+        orientation = sample['map'][-1:]
         rad = angle / 180 * np.pi
         rotation_mat = torch.tensor([[np.cos(rad), np.sin(rad)], [-np.sin(rad), np.cos(rad)]], dtype=torch.float32)
+        orientation += rad
+        sample['map'] = torch.cat([sample['map'][:-1], torch.sin(orientation), torch.cos(orientation)], dim=0)
         sample['location'] = sample['location'] @ rotation_mat
         sample['bbox'][:, -1] += rad
-        sample['bbox'][:, -1] = torch.where(sample['bbox'][:, -1] >= 2 * np.pi, sample['bbox'][:, -1] - 2 * np.pi, sample['bbox'][:, -1])
         sample['velocity'][:, -1] += rad
-        sample['velocity'][:, -1] = torch.where(sample['velocity'][:, -1] >= 2 * np.pi, sample['velocity'][:, -1] - 2 * np.pi, sample['velocity'][:, -1])
         # filter out objects fallen outside the image
         r = sample['location'].norm(dim=1)
         mask = (r < 40)

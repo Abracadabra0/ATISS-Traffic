@@ -24,9 +24,6 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
     train_dataset = NuScenesDataset("../../data/nuScene-processed/train")
-    train_dataloader = DataLoader(train_dataset, batch_size=20, shuffle=True, num_workers=4, collate_fn=collate_train)
-    test_dataset = NuScenesDataset("../../data/nuScene-processed/test")
-    test_dataloader = DataLoader(test_dataset, batch_size=20, shuffle=False, num_workers=4, collate_fn=collate_train)
     loss_fn = WeightedNLL(weights={
         'category': 0.2,
         'location': 1.,
@@ -39,15 +36,20 @@ if __name__ == '__main__':
     loss_fn.to(device)
     model = AutoregressiveTransformer(loss_fn=loss_fn, lr=1e-3, scheduler=lr_func(500), logger=writer)
     model.to(device)
-    n_epochs = 20
+    n_epochs = 300
     iters = 0
 
     for epoch in range(n_epochs):
         print(f'----------------Epoch {epoch}----------------')
+        windows_size = max(1 + n_epochs // 2, 10)
+        train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4,
+                                      collate_fn=collate_train(windows_size))
         for samples, lengths, gt in train_dataloader:
             for k in samples:
                 samples[k] = samples[k].to(device)
             lengths = lengths.to(device)
+            for k in gt:
+                gt[k] = gt[k].to(device)
 
             loss = model(samples, lengths, gt)
             print(iters, loss['all'].item())
@@ -55,7 +57,7 @@ if __name__ == '__main__':
                 writer.add_scalar(f'loss/{k}', loss[k], iters)
             iters += 1
 
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % 100 == 0:
             model.cpu()
             torch.save(model.state_dict(), os.path.join('./ckpts', timestamp + f'-{epoch}'))
             model.to(device)

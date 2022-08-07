@@ -11,12 +11,20 @@ class FixedPositionalEncoding(nn.Module):
         exp = torch.linspace(0, 1, proj_dims)
         exp = 0.1 ** exp
         self.sigma = 2 * np.pi / exp
+        self.sigma_angle = torch.round(torch.linspace(1, 8, 32))
 
     def forward(self, x):
-        return torch.cat([
-            torch.sin(x[..., None] * self.sigma.to(x.device)),
-            torch.cos(x[..., None] * self.sigma.to(x.device))
-        ], dim=-1).flatten(start_dim=-2)
+        non_angle = x[..., :-1]
+        angle = x[..., -1:]
+        pe_non_angle = torch.cat([
+            torch.sin(non_angle[..., None] * self.sigma.to(x.device)),
+            torch.cos(non_angle[..., None] * self.sigma.to(x.device))
+        ], dim=-1)
+        pe_angle = torch.cat([
+            torch.sin(angle[..., None] * self.sigma_angle.to(x.device)),
+            torch.cos(angle[..., None] * self.sigma_angle.to(x.device))
+        ], dim=-1)
+        return torch.cat([pe_non_angle, pe_angle], dim=-2).flatten(start_dim=-2)
 
 
 class TrainablePE(nn.Module):

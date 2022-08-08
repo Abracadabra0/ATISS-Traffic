@@ -34,8 +34,8 @@ class Decoder(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1)),
         )
-        self.wl = get_mlp(128, (1 + 2 + 2) * self.n_mixture)
-        self.theta = get_mlp(128, (1 + 2 + 1) * self.n_mixture)
+        self.wl = get_mlp(self.d_model + 128, (1 + 2 + 2) * self.n_mixture)
+        self.theta = get_mlp(self.d_model + 128, (1 + 2 + 1) * self.n_mixture)
         self.moving = get_mlp(self.d_model + 128 + 192, 1)
         self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 + 1) * self.n_mixture)
         self.omega = get_mlp(self.d_model + 128 + 192, (1 + 2 + 1) * self.n_mixture)
@@ -184,6 +184,7 @@ class AutoregressiveTransformer(nn.Module):
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
 
         f_in = torch.cat([
+            output_f,
             location_f
         ], dim=-1)  # (B, 128)
         f_out = decoder(f_in, 'wl')
@@ -201,7 +202,7 @@ class AutoregressiveTransformer(nn.Module):
         bbox_f = self.pe_bbox(pred_bbox)
 
         f_in = torch.cat([
-            self.d_model,
+            output_f,
             location_f,
             bbox_f
         ], dim=-1)  # (B, 128 + 192)

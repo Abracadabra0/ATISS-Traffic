@@ -25,14 +25,13 @@ class Decoder(nn.Module):
         self.d_model = d_model
         self.n_mixture = n_mixture
         self.location = nn.Sequential(
-            nn.Conv2d(in_channels=self.d_model + 128, out_channels=64, kernel_size=(3, 3), padding=(1, 1)),
+            nn.Conv2d(in_channels=self.d_model + 128, out_channels=128, kernel_size=(5, 5), padding=(2, 2)),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=128, out_channels=64, kernel_size=(3, 3), padding=(1, 1)),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), padding=(1, 1)),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1)),
+            nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1))
         )
         self.wl = get_mlp(self.d_model + 128, (1 + 2 + 2) * self.n_mixture)
         self.theta = get_mlp(self.d_model + 128, (1 + 2 + 1) * self.n_mixture)
@@ -82,7 +81,7 @@ class AutoregressiveTransformer(nn.Module):
         self.q = nn.Parameter(torch.randn(self.d_model))
 
         # extract features from maps
-        self.feature_extractor = Extractor(9)
+        self.feature_extractor = Extractor(12)
 
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)
@@ -98,7 +97,7 @@ class AutoregressiveTransformer(nn.Module):
         self.pe = TrainablePE(self.d_model)
 
         # used for autoregressive decoding
-        self.n_mixture = 10
+        self.n_mixture = 8
         self.prob_category = get_mlp(self.d_model + 128, 4)  # categorical distribution
 
         self.decoder_pedestrian = Decoder()
@@ -239,18 +238,18 @@ class AutoregressiveTransformer(nn.Module):
         }
         return probs, preds
 
-    def _rasterize(self, occupancy, category, location, bbox):
-        B = occupancy.size(0)
-        device = occupancy.device
-        category = category.to('cpu').numpy()
+    def _rasterize(self, object_layers, category, location, bbox, velocity):
+        B = object_layers.size(0)
+        device = object_layers.device
         location = location.to('cpu').numpy()
         bbox = bbox.to('cpu').numpy()
-        occupancy = occupancy.to('cpu').numpy()
+        velocity = velocity.to('cpu').numpy()
+        object_layers = object_layers.to('cpu').numpy()
         for i in range(B):
             if category[i] == 0:
                 continue
-            layer = category[i] - 1
             w, l, theta = bbox[i]
+            speed, heading = velocity[i]
             corners = np.array([[l / 2, w / 2],
                                 [-l / 2, w / 2],
                                 [-l / 2, -w / 2],
@@ -261,8 +260,14 @@ class AutoregressiveTransformer(nn.Module):
             corners[:, 0] = corners[:, 0] + 40
             corners[:, 1] = 40 - corners[:, 1]
             corners = np.floor(corners / 0.25).astype(int)
-            cv2.fillConvexPoly(occupancy[i, layer], corners, 1)
-        return torch.tensor(occupancy, dtype=torch.float32, device=device)
+            cv2.fillConvexPoly(object_layers[i, 0], corners, 1)
+            cv2.fillConvexPoly(object_layers[i, 1], corners, np.sin(theta))
+            cv2.fillConvexPoly(object_layers[i, 2], corners, np.cos(theta))
+            cv2.fillConvexPoly(object_layers[i, 3], corners, speed)
+            cv2.fillConvexPoly(object_layers[i, 4], corners, np.sin(heading))
+            cv2.fillConvexPoly(object_layers[i, 5], corners, np.cos(heading))
+
+        return torch.tensor(object_layers, dtype=torch.float32, device=device)
 
     def _forward_step(self, samples, lengths, gt):
         B, L, *_ = samples["category"].shape

@@ -5,6 +5,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torchvision.transforms import functional as F
 from torchvision.transforms import RandomRotation
 
+
 def crop_image(image: np.array,
                x_px: int,
                y_px: int,
@@ -70,13 +71,16 @@ def collate_train(samples, window_size=4):
     angles = np.random.rand(len(samples)) * 360
     for sample, angle in zip(samples, angles):
         sample['map'] = F.rotate(sample['map'], angle)
-        orientation = sample['map'][-1:]
+        # drivable_area, ped_crossing, walkway, lane, orientation
+        base_layers = sample['map'][:4]
+        lane = sample['map'][3:4]
+        orientation = sample['map'][4:]
         rad = angle / 180 * np.pi
         rotation_mat = torch.tensor([[np.cos(rad), np.sin(rad)], [-np.sin(rad), np.cos(rad)]], dtype=torch.float32)
         orientation += rad
-        sample['map'] = torch.cat([sample['map'][:-1],
-                                   torch.sin(orientation) * orientation,
-                                   torch.cos(orientation) * orientation], dim=0)
+        sample['map'] = torch.cat([base_layers,
+                                   torch.sin(orientation) * lane,
+                                   torch.cos(orientation) * lane], dim=0)
         sample['location'] = sample['location'] @ rotation_mat
         sample['bbox'][:, -1] += rad
         sample['velocity'][:, -1] += rad
@@ -102,10 +106,24 @@ def collate_train(samples, window_size=4):
         for field in fields:
             collated[field].append(sample[field][:keep_length])
             gt[field].append(sample[field][keep_length:keep_length + window_size])
-        occupancy = rasterize_objects(sample['category'][:keep_length],
-                                      sample['location'][:keep_length],
-                                      sample['bbox'][:keep_length])
-        maps.append(torch.cat([sample['map'], occupancy], dim=0))
+        object_layers = rasterize_objects(sample['category'][:keep_length],
+                                          sample['location'][:keep_length],
+                                          sample['bbox'][:keep_length],
+                                          sample['velocity'][:keep_length])
+        # drivable_area, ped_crossing, walkway, lane, orientation(sin), orientation(cos),
+        # occupancy, orientation(sin), orientation(cos), speed,
+        # heading(sin), heading(cos)
+        # 12 layers in total
+        all_layers = torch.cat([
+            sample['map'],
+            object_layers['occupancy'],
+            torch.sin(object_layers['orientation']) * object_layers['occupancy'],
+            torch.cos(object_layers['orientation']) * object_layers['occupancy'],
+            object_layers['speed'],
+            torch.sin(object_layers['heading']) * object_layers['occupancy'],
+            torch.cos(object_layers['heading']) * object_layers['occupancy']
+        ], dim=0)
+        maps.append(all_layers)
     for field in fields:
         collated[field] = pad_sequence(collated[field], batch_first=True)
         gt[field] = pad_sequence(gt[field], batch_first=True)
@@ -113,26 +131,30 @@ def collate_train(samples, window_size=4):
     return collated, torch.tensor(keep_lengths), gt
 
 
-def rasterize_objects(category, location, bbox):
+def rasterize_objects(category, location, bbox, velocity):
     category = category.numpy()
     location = location.numpy()
     bbox = bbox.numpy()
-    maps = np.zeros((3, 320, 320), dtype=np.int8)
-    for category_one, location_one, bbox_one in zip(category, location, bbox):
-        if category_one == 0:
-            continue
-        layer = category_one - 1
-        w, l, theta = bbox_one
+    velocity = velocity.numpy()
+    L = category.shape[0]
+    maps = {k: np.zeros((320, 320)) for k in ['occupancy', 'orientation', 'speed', 'heading']}
+    for i in range(L):
+        w, l, theta = bbox[i]
+        speed, heading = velocity[i]
         corners = np.array([[l / 2, w / 2],
                             [-l / 2, w / 2],
                             [-l / 2, -w / 2],
                             [l / 2, -w / 2]])
         rotation = np.array([[np.cos(theta), np.sin(theta)],
                              [-np.sin(theta), np.cos(theta)]])
-        corners = np.dot(corners, rotation) + location_one
+        corners = np.dot(corners, rotation) + location[i]
         corners[:, 0] = corners[:, 0] + 40
         corners[:, 1] = 40 - corners[:, 1]
         corners = np.floor(corners / 0.25).astype(int)
-        cv2.fillConvexPoly(maps[layer], corners, 255)
-    maps = maps / 255
-    return torch.tensor(maps, dtype=torch.float32)
+        cv2.fillConvexPoly(maps['occupancy'], corners, 1)
+        cv2.fillConvexPoly(maps['orientation'], corners, theta)
+        cv2.fillConvexPoly(maps['speed'], corners, speed)
+        cv2.fillConvexPoly(maps['heading'], corners, heading)
+    for k in ['occupancy', 'orientation', 'speed', 'heading']:
+        maps[k] = torch.tensor(maps[k], dtype=torch.float32).unsqueeze(0)
+    return maps

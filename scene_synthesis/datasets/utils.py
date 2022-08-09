@@ -65,7 +65,7 @@ def collate_test(samples, keep='random', append=False):
     return collated, torch.tensor(keep_lengths)
 
 
-def collate_train(samples, window_size=4):
+def collate_train(samples, window_size=8):
     fields = ['category', 'location', 'bbox', 'velocity']
     # random rotation
     angles = np.random.rand(len(samples)) * 360
@@ -137,7 +137,7 @@ def rasterize_objects(category, location, bbox, velocity):
     bbox = bbox.numpy()
     velocity = velocity.numpy()
     L = category.shape[0]
-    maps = {k: np.zeros((320, 320)) for k in ['occupancy', 'orientation', 'speed', 'heading']}
+    maps = {k: np.zeros((320, 320), dtype=np.float32) for k in ['occupancy', 'orientation', 'speed', 'heading']}
     for i in range(L):
         w, l, theta = bbox[i]
         speed, heading = velocity[i]
@@ -151,10 +151,12 @@ def rasterize_objects(category, location, bbox, velocity):
         corners[:, 0] = corners[:, 0] + 40
         corners[:, 1] = 40 - corners[:, 1]
         corners = np.floor(corners / 0.25).astype(int)
-        cv2.fillConvexPoly(maps['occupancy'], corners, 1)
-        cv2.fillConvexPoly(maps['orientation'], corners, theta)
-        cv2.fillConvexPoly(maps['speed'], corners, speed)
-        cv2.fillConvexPoly(maps['heading'], corners, heading)
+        occupancy = np.zeros((320, 320), dtype=np.uint8)
+        cv2.fillConvexPoly(occupancy, corners, 255)
+        maps['occupancy'] = np.where(occupancy > 0, 1., maps['occupancy'])
+        maps['orientation'] = np.where(occupancy > 0, theta, maps['orientation'])
+        maps['speed'] = np.where(occupancy > 0, speed, maps['speed'])
+        maps['heading'] = np.where(occupancy > 0, heading, maps['heading'])
     for k in ['occupancy', 'orientation', 'speed', 'heading']:
         maps[k] = torch.tensor(maps[k], dtype=torch.float32).unsqueeze(0)
     return maps

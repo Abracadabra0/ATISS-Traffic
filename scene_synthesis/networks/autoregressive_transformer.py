@@ -20,7 +20,7 @@ import cv2
 
 
 class Decoder(nn.Module):
-    def __init__(self, d_model=768, n_mixture=10):
+    def __init__(self, d_model=768, n_mixture=8):
         super(Decoder, self).__init__()
         self.d_model = d_model
         self.n_mixture = n_mixture
@@ -260,12 +260,14 @@ class AutoregressiveTransformer(nn.Module):
             corners[:, 0] = corners[:, 0] + 40
             corners[:, 1] = 40 - corners[:, 1]
             corners = np.floor(corners / 0.25).astype(int)
-            cv2.fillConvexPoly(object_layers[i, 0], corners, 1)
-            cv2.fillConvexPoly(object_layers[i, 1], corners, np.sin(theta))
-            cv2.fillConvexPoly(object_layers[i, 2], corners, np.cos(theta))
-            cv2.fillConvexPoly(object_layers[i, 3], corners, speed)
-            cv2.fillConvexPoly(object_layers[i, 4], corners, np.sin(heading))
-            cv2.fillConvexPoly(object_layers[i, 5], corners, np.cos(heading))
+            occupancy = np.zeros((320, 320), dtype=np.uint8)
+            cv2.fillConvexPoly(occupancy, corners, 255)
+            object_layers[i, 0] = np.where(occupancy > 0, 1., object_layers[i, 0])
+            object_layers[i, 1] = np.where(occupancy > 0, np.sin(theta), object_layers[i, 1])
+            object_layers[i, 2] = np.where(occupancy > 0, np.cos(theta), object_layers[i, 2])
+            object_layers[i, 3] = np.where(occupancy > 0, speed, object_layers[i, 3])
+            object_layers[i, 4] = np.where(occupancy > 0, np.sin(heading), object_layers[i, 4])
+            object_layers[i, 5] = np.where(occupancy > 0, np.cos(heading), object_layers[i, 5])
 
         return torch.tensor(object_layers, dtype=torch.float32, device=device)
 
@@ -362,10 +364,10 @@ class AutoregressiveTransformer(nn.Module):
 
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             pred['bbox'] = torch.cat([pred['wl'], pred['theta']], dim=-1)
-            occupancy = self._rasterize(samples['map'][:, 3:], pred['category'], pred['location'], pred['bbox'])
-            new_samples['map'] = torch.cat([samples['map'][:, :3], occupancy], dim=1)
-            pred['location'] = self._discrete_loc(pred['location'])
             pred['velocity'] = torch.cat([pred['s'], pred['omega']], dim=-1) * pred['moving']
+            occupancy = self._rasterize(samples['map'][:, 6:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
+            new_samples['map'] = torch.cat([samples['map'][:, :6], occupancy], dim=1)
+            pred['location'] = self._discrete_loc(pred['location'])
             for i in range(B):
                 length = lengths[i].item()
                 new_samples_one = {}

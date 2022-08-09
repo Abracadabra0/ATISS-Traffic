@@ -1,7 +1,7 @@
 import sys
 
 sys.path.append('/shared/perception/personals/yefanlin/project/ATISS-Traffic')
-# sys.path.append('/projects/perception/personals/yefanlin/project/ATISS-Traffic')
+sys.path.append('/projects/perception/personals/yefanlin/project/ATISS-Traffic')
 
 import os
 import torch
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     model.to(device)
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4,
                                   collate_fn=collate_train)
-    n_epochs = 400
+    n_epochs = 300
     iters = 0
 
     for epoch in range(n_epochs):

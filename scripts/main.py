@@ -25,7 +25,7 @@ if __name__ == '__main__':
     os.makedirs('./ckpts', exist_ok=True)
     train_dataset = NuScenesDataset("../../data/nuScene-processed/train")
     loss_fn = WeightedNLL(weights={
-        'category': 0.05,
+        'category': 0.1,
         'location': 1.,
         'wl': 0.4,
         'theta': 0.4,
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     model.to(device)
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4,
                                   collate_fn=collate_train)
-    n_epochs = 300
+    n_epochs = 250
     iters = 0
 
     for epoch in range(n_epochs):
@@ -56,7 +56,7 @@ if __name__ == '__main__':
                 writer.add_scalar(f'loss/{k}', loss[k], iters)
             iters += 1
 
-        if (epoch + 1) % 100 == 0:
+        if (epoch + 1) % 50 == 0:
             model.cpu()
             torch.save(model.state_dict(), os.path.join('./ckpts', timestamp + f'-{epoch}'))
             model.to(device)

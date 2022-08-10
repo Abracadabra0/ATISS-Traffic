@@ -25,7 +25,7 @@ class Decoder(nn.Module):
         self.d_model = d_model
         self.n_mixture = n_mixture
         self.location = nn.Sequential(
-            nn.Conv2d(in_channels=self.d_model + 128, out_channels=128, kernel_size=(5, 5), padding=(2, 2)),
+            nn.Conv2d(in_channels=self.d_model + 128, out_channels=128, kernel_size=(3, 3), padding=(2, 2)),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=(3, 3), padding=(1, 1)),
@@ -168,7 +168,10 @@ class AutoregressiveTransformer(nn.Module):
         pred = sample[max_prob]
         return pred
 
-    def _decode(self, decoder, output_f, map_f, n_sample=1):
+    def _decode(self, decoder, output_f, map_f,
+                n_sample=1,
+                prev_location=None,
+                prev_occupancy=None):
         B = output_f.size(0)
         f_in = torch.cat([output_f[:, None, :].expand(B, 6400, self.d_model), map_f], dim=-1)
         f_out = decoder(f_in, 'location')  # (B, 6400)
@@ -176,7 +179,17 @@ class AutoregressiveTransformer(nn.Module):
         if n_sample == 1:
             pred_location = prob_location.sample()  # (B, )
         else:
-            pred_location = self._max_prob_sample(prob_location, n_sample)
+            while True:
+                pred_location = self._max_prob_sample(prob_location, n_sample)
+                # reject previous location
+                if prev_location.size(1) > 0 and pred_location.item() < prev_location.max():
+                    continue
+                # reject overlapping location
+                row = pred_location.item() // 80
+                col = pred_location.item() % 80
+                if prev_occupancy[row, col]:
+                    continue
+                break
         location_f = []
         for location_one, map_f_one in zip(pred_location, map_f):
             location_f.append(map_f_one[location_one])
@@ -195,8 +208,29 @@ class AutoregressiveTransformer(nn.Module):
             pred_wl = prob_wl.sample()
             pred_theta = prob_theta.sample()
         else:
-            pred_wl = self._max_prob_sample(prob_wl, n_sample)
-            pred_theta = self._max_prob_sample(prob_theta, n_sample)
+            while True:
+                pred_wl = self._max_prob_sample(prob_wl, n_sample)
+                pred_theta = self._max_prob_sample(prob_theta, n_sample)
+                # reject overlapping bounding box
+                location = self._smooth_loc(pred_location).squeeze().numpy()
+                w, l = pred_wl.squeeze().numpy()
+                theta = pred_theta.item()
+                corners = np.array([[l / 2, w / 2],
+                                    [-l / 2, w / 2],
+                                    [-l / 2, -w / 2],
+                                    [l / 2, -w / 2]])
+                rotation = np.array([[np.cos(theta), np.sin(theta)],
+                                     [-np.sin(theta), np.cos(theta)]])
+                corners = np.dot(corners, rotation) + location
+                corners[:, 0] = corners[:, 0] + 40
+                corners[:, 1] = 40 - corners[:, 1]
+                corners = np.floor(corners / 0.25).astype(int)
+                new_occupancy = np.zeros((80, 80), dtype=np.uint8)
+                cv2.fillConvexPoly(new_occupancy, corners, 1)
+                if (new_occupancy & prev_occupancy).sum() > 0:
+                    continue
+                break
+
         pred_bbox = torch.cat([pred_wl, pred_theta], dim=-1)
         bbox_f = self.pe_bbox(pred_bbox)
 
@@ -305,8 +339,8 @@ class AutoregressiveTransformer(nn.Module):
         mask = get_length_mask(lengths + 1)
         output_f = self.transformer_encoder(input_f, src_key_padding_mask=mask)  # (B, L + 1, d_model)
 
-        # max pooling
-        output_f = output_f.max(dim=1)[0]  # (B, d_model)
+        # mean pooling
+        output_f = output_f.mean(dim=1)  # (B, d_model)
 
         # predict category
         prob_category = self.prob_category(torch.cat([output_f, map_f.mean(dim=1)], dim=-1))  # (B, 4)
@@ -463,9 +497,37 @@ class AutoregressiveTransformer(nn.Module):
                 decoder = self.decoder_bicyclist
             else:
                 decoder = self.decoder_vehicle
-            probs, preds = self._decode(decoder, output_f, map_f, n_sample)
+            prev_occupancy = maps[0, 6].numpy()
+            prev_occupancy = cv2.resize(prev_occupancy, (80, 80)).astype(bool)
+            probs, preds = self._decode(decoder, output_f, map_f, n_sample,
+                                        prev_location=location,
+                                        prev_occupancy=prev_occupancy)
             probs['category'] = prob_category
-            for k in preds:
-                preds[k] = preds[k].squeeze(0)
-            preds['category'] = pred_category
-            return preds, probs
+            preds['category'] = torch.tensor([pred_category])
+
+            new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
+            preds['bbox'] = torch.cat([preds['wl'], preds['theta']], dim=-1)
+            preds['velocity'] = torch.cat([preds['s'], preds['omega']], dim=-1) * preds['moving']
+            occupancy = self._rasterize(samples['map'][:, 6:],
+                                        preds['category'],
+                                        preds['location'],
+                                        preds['bbox'],
+                                        preds['velocity'])
+            new_samples['map'] = torch.cat([samples['map'][:, :6], occupancy], dim=1)
+            for i in range(B):
+                length = lengths[i].item()
+                new_samples_one = {}
+                for field in ['category', 'location', 'bbox', 'velocity']:
+                    new_samples_one[field] = torch.cat([samples[field][i, :length], preds[field][i].unsqueeze(0)], dim=0)
+                idx = list(range(length + 1))
+                idx.sort(key=lambda x: (-new_samples_one['location'][x, 1], new_samples_one['location'][x, 0]))
+                for field in ['category', 'location', 'bbox', 'velocity']:
+                    new_samples_one[field] = new_samples_one[field][idx]
+                    new_samples[field].append(new_samples_one[field])
+            for field in ['category', 'location', 'bbox', 'velocity']:
+                new_samples[field] = pad_sequence(new_samples[field], batch_first=True)
+            lengths = lengths + 1
+            samples = new_samples
+
+        self.train()
+        return preds, probs, samples, lengths

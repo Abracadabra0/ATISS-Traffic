@@ -35,30 +35,54 @@ def cartesian_to_polar(vector: np.array) -> np.array:
     return np.array([rho, theta])
 
 
-def collate_test(samples, keep='random', append=False):
+def collate_test(samples, keep='random'):
     fields = ['category', 'location', 'bbox', 'velocity']
+    for sample in samples:
+        # drivable_area, ped_crossing, walkway, lane, orientation
+        base_layers = sample['map'][:4]
+        lane = sample['map'][3:4]
+        orientation = sample['map'][4:]
+        sample['map'] = torch.cat([base_layers,
+                                   torch.sin(orientation) * lane,
+                                   torch.cos(orientation) * lane], dim=0)
+        # reorder
+        idx = list(range(len(sample['category']) - 1))
+        idx.sort(key=lambda x: (-sample['location'][x, 1], sample['location'][x, 0]))
+        idx.append(len(sample['category']) - 1)
+        for field in ['category', 'location', 'bbox', 'velocity']:
+            sample[field] = sample[field][idx]
+
     # random masking
     lengths = [len(sample['category']) for sample in samples]
-    if keep == 'all':
-        keep_lengths = lengths
-    elif keep == 'random':
+    if keep == 'random':
         keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
+    elif keep == 'all':
+        keep_lengths = lengths
     else:
-        keep_lengths = [0 for length in lengths]
+        keep_lengths = [0 for _ in lengths]
     collated = {field: [] for field in fields}
     maps = []
     for sample, keep_length in zip(samples, keep_lengths):
         for field in fields:
             collated[field].append(sample[field][:keep_length])
-        occupancy = rasterize_objects(sample['category'][:keep_length],
-                                      sample['location'][:keep_length],
-                                      sample['bbox'][:keep_length])
-        if not append:
-            orientation = sample['map'][-1:]
-            sample['map'] = torch.cat([sample['map'][:-1],
-                                       torch.sin(orientation) * orientation,
-                                       torch.cos(orientation) * orientation], dim=0)
-        maps.append(torch.cat([sample['map'][:6], occupancy], dim=0))
+        object_layers = rasterize_objects(sample['category'][:keep_length],
+                                          sample['location'][:keep_length],
+                                          sample['bbox'][:keep_length],
+                                          sample['velocity'][:keep_length])
+        # drivable_area, ped_crossing, walkway, lane, orientation(sin), orientation(cos),
+        # occupancy, orientation(sin), orientation(cos), speed,
+        # heading(sin), heading(cos)
+        # 12 layers in total
+        all_layers = torch.cat([
+            sample['map'],
+            object_layers['occupancy'],
+            torch.sin(object_layers['orientation']) * object_layers['occupancy'],
+            torch.cos(object_layers['orientation']) * object_layers['occupancy'],
+            object_layers['speed'],
+            torch.sin(object_layers['heading']) * object_layers['occupancy'],
+            torch.cos(object_layers['heading']) * object_layers['occupancy']
+        ], dim=0)
+        maps.append(all_layers)
     for field in fields:
         collated[field] = pad_sequence(collated[field], batch_first=True)
     collated['map'] = torch.stack(maps)

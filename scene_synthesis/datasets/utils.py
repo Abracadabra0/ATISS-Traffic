@@ -89,7 +89,7 @@ def collate_test(samples, keep='random'):
     return collated, torch.tensor(keep_lengths)
 
 
-def collate_train(samples, window_size=8):
+def collate_train(samples, window_size=4):
     fields = ['category', 'location', 'bbox', 'velocity']
     # random rotation
     angles = np.random.rand(len(samples)) * 360

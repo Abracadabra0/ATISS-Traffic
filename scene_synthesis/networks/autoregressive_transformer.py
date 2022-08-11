@@ -25,7 +25,7 @@ class Decoder(nn.Module):
         self.d_model = d_model
         self.n_mixture = n_mixture
         self.location = nn.Sequential(
-            nn.Conv2d(in_channels=self.d_model + 128, out_channels=128, kernel_size=(3, 3), padding=(2, 2)),
+            nn.Conv2d(in_channels=self.d_model + 128, out_channels=128, kernel_size=(3, 3), padding=(1, 1)),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=128, out_channels=64, kernel_size=(3, 3), padding=(1, 1)),

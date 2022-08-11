@@ -33,11 +33,11 @@ class Decoder(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1))
         )
-        self.wl = get_mlp(self.d_model + 128, (1 + 2 + 2) * self.n_mixture)
-        self.theta = get_mlp(self.d_model + 128, (1 + 2 + 1) * self.n_mixture)
-        self.moving = get_mlp(self.d_model + 128 + 192, 1)
-        self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 + 1) * self.n_mixture)
-        self.omega = get_mlp(self.d_model + 128 + 192, (1 + 2 + 1) * self.n_mixture)
+        self.wl = get_mlp(128, (1 + 2 + 2) * self.n_mixture)
+        self.theta = get_mlp(128, (1 + 2 + 1) * self.n_mixture)
+        self.moving = get_mlp(128 + 192, 1)
+        self.s = get_mlp(128 + 192, (1 + 1 + 1) * self.n_mixture)
+        self.omega = get_mlp(128 + 192, (1 + 2 + 1) * self.n_mixture)
 
     def forward(self, f, field):
         if field == 'location':
@@ -181,9 +181,9 @@ class AutoregressiveTransformer(nn.Module):
         else:
             while True:
                 pred_location = self._max_prob_sample(prob_location, n_sample)
-                # reject previous location
-                if prev_location.size(1) > 0 and pred_location.item() < prev_location.max():
-                    continue
+                # # reject previous location
+                # if prev_location.size(1) > 0 and pred_location.item() < prev_location.max():
+                #     continue
                 # reject overlapping location
                 row = pred_location.item() // 80
                 col = pred_location.item() % 80
@@ -196,7 +196,6 @@ class AutoregressiveTransformer(nn.Module):
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
 
         f_in = torch.cat([
-            output_f,
             location_f
         ], dim=-1)  # (B, 128)
         f_out = decoder(f_in, 'wl')
@@ -235,7 +234,6 @@ class AutoregressiveTransformer(nn.Module):
         bbox_f = self.pe_bbox(pred_bbox)
 
         f_in = torch.cat([
-            output_f,
             location_f,
             bbox_f
         ], dim=-1)  # (B, 128 + 192)

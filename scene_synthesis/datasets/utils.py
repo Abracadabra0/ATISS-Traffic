@@ -56,10 +56,10 @@ def collate_test(samples, keep='random'):
     lengths = [len(sample['category']) for sample in samples]
     if keep == 'random':
         keep_lengths = [np.random.randint(0, length + 1) for length in lengths]
-    elif keep == 'all':
+    elif keep == -1:
         keep_lengths = lengths
     else:
-        keep_lengths = [0 for _ in lengths]
+        keep_lengths = [keep for _ in lengths]
     collated = {field: [] for field in fields}
     maps = []
     for sample, keep_length in zip(samples, keep_lengths):
@@ -89,7 +89,7 @@ def collate_test(samples, keep='random'):
     return collated, torch.tensor(keep_lengths)
 
 
-def collate_train(samples, window_size=4):
+def collate_train(samples, window_size=1):
     fields = ['category', 'location', 'bbox', 'velocity']
     # random rotation
     angles = np.random.rand(len(samples)) * 360

@@ -178,15 +178,17 @@ class AutoregressiveTransformer(nn.Module):
         prob_location = Categorical(logits=f_out)
         if n_sample == 1:
             pred_location = prob_location.sample()  # (B, )
+            pred_location_smoothed = self._smooth_loc(pred_location)
         else:
             while True:
                 pred_location = self._max_prob_sample(prob_location, n_sample)
+                pred_location_smoothed = self._smooth_loc(pred_location)
                 # # reject previous location
                 # if prev_location.size(1) > 0 and pred_location.item() < prev_location.max():
                 #     continue
                 # reject overlapping location
-                row = pred_location.item() // 80
-                col = pred_location.item() % 80
+                row = int((40 - pred_location_smoothed.squeeze().numpy()[1]) / 0.25)
+                col = int((pred_location_smoothed.squeeze().numpy()[0] + 40) / 0.25)
                 if prev_occupancy[row, col]:
                     continue
                 break
@@ -211,7 +213,7 @@ class AutoregressiveTransformer(nn.Module):
                 pred_wl = self._max_prob_sample(prob_wl, n_sample)
                 pred_theta = self._max_prob_sample(prob_theta, n_sample)
                 # reject overlapping bounding box
-                location = self._smooth_loc(pred_location).squeeze().numpy()
+                location = pred_location_smoothed.squeeze().numpy()
                 w, l = pred_wl.squeeze().numpy()
                 theta = pred_theta.item()
                 corners = np.array([[l / 2, w / 2],
@@ -224,9 +226,9 @@ class AutoregressiveTransformer(nn.Module):
                 corners[:, 0] = corners[:, 0] + 40
                 corners[:, 1] = 40 - corners[:, 1]
                 corners = np.floor(corners / 0.25).astype(int)
-                new_occupancy = np.zeros((80, 80), dtype=np.uint8)
+                new_occupancy = np.zeros((320, 320), dtype=np.uint8)
                 cv2.fillConvexPoly(new_occupancy, corners, 1)
-                if (new_occupancy & prev_occupancy).sum() > 0:
+                if (new_occupancy.astype(bool) & prev_occupancy.astype(bool)).sum() > 0:
                     continue
                 break
 
@@ -261,7 +263,7 @@ class AutoregressiveTransformer(nn.Module):
             "omega": prob_omega
         }
         preds = {
-            "location": self._smooth_loc(pred_location),
+            "location": pred_location_smoothed,
             "wl": pred_wl,
             "theta": pred_theta,
             "moving": pred_moving,
@@ -496,7 +498,6 @@ class AutoregressiveTransformer(nn.Module):
             else:
                 decoder = self.decoder_vehicle
             prev_occupancy = maps[0, 6].numpy()
-            prev_occupancy = cv2.resize(prev_occupancy, (80, 80)).astype(bool)
             probs, preds = self._decode(decoder, output_f, map_f, n_sample,
                                         prev_location=location,
                                         prev_occupancy=prev_occupancy)

@@ -490,7 +490,7 @@ class AutoregressiveTransformer(nn.Module):
                     "s": None,
                     "omega": None
                 }
-                return preds, probs
+                return preds, probs, samples, lengths
             elif pred_category == 1:
                 decoder = self.decoder_pedestrian
             elif pred_category == 2:

@@ -95,10 +95,10 @@ def collate_train(samples, window_size=1):
     angles = np.random.rand(len(samples)) * 360
     for sample, angle in zip(samples, angles):
         sample['map'] = F.rotate(sample['map'], angle)
-        # drivable_area, ped_crossing, walkway, lane, orientation
-        base_layers = sample['map'][:4]
-        lane = sample['map'][3:4]
-        orientation = sample['map'][4:]
+        # drivable_area, carpark_area, ped_crossing, walkway, lane, orientation
+        base_layers = sample['map'][:5]
+        lane = sample['map'][4:5]
+        orientation = sample['map'][5:]
         rad = angle / 180 * np.pi
         rotation_mat = torch.tensor([[np.cos(rad), np.sin(rad)], [-np.sin(rad), np.cos(rad)]], dtype=torch.float32)
         orientation += rad
@@ -134,10 +134,10 @@ def collate_train(samples, window_size=1):
                                           sample['location'][:keep_length],
                                           sample['bbox'][:keep_length],
                                           sample['velocity'][:keep_length])
-        # drivable_area, ped_crossing, walkway, lane, orientation(sin), orientation(cos),
+        # drivable_area, carpark_area, ped_crossing, walkway, lane, orientation(sin), orientation(cos),
         # occupancy, orientation(sin), orientation(cos), speed,
         # heading(sin), heading(cos)
-        # 12 layers in total
+        # 13 layers in total
         all_layers = torch.cat([
             sample['map'],
             object_layers['occupancy'],

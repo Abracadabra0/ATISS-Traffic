@@ -33,11 +33,11 @@ class Decoder(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1))
         )
-        self.wl = get_mlp(128, (1 + 2 + 2) * self.n_mixture)
-        self.theta = get_mlp(128, (1 + 2 + 1) * self.n_mixture)
-        self.moving = get_mlp(128 + 192, 1)
-        self.s = get_mlp(128 + 192, (1 + 1 + 1) * self.n_mixture)
-        self.omega = get_mlp(128 + 192, (1 + 2 + 1) * self.n_mixture)
+        self.wl = get_mlp(self.d_model + 128, (1 + 2 + 2) * self.n_mixture)
+        self.theta = get_mlp(self.d_model + 128, (1 + 2 + 1) * self.n_mixture)
+        self.moving = get_mlp(self.d_model + 128 + 192, 1)
+        self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 + 1) * self.n_mixture)
+        self.omega = get_mlp(self.d_model + 128 + 192, (1 + 2 + 1) * self.n_mixture)
 
     def forward(self, f, field):
         if field == 'location':
@@ -81,7 +81,7 @@ class AutoregressiveTransformer(nn.Module):
         self.q = nn.Parameter(torch.randn(self.d_model))
 
         # extract features from maps
-        self.feature_extractor = Extractor(12)
+        self.feature_extractor = Extractor(13)
 
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)
@@ -198,6 +198,7 @@ class AutoregressiveTransformer(nn.Module):
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
 
         f_in = torch.cat([
+            output_f,
             location_f
         ], dim=-1)  # (B, 128)
         f_out = decoder(f_in, 'wl')
@@ -213,29 +214,30 @@ class AutoregressiveTransformer(nn.Module):
                 pred_wl = self._max_prob_sample(prob_wl, n_sample)
                 pred_theta = self._max_prob_sample(prob_theta, n_sample)
                 # reject overlapping bounding box
-                location = pred_location_smoothed.squeeze().numpy()
-                w, l = pred_wl.squeeze().numpy()
-                theta = pred_theta.item()
-                corners = np.array([[l / 2, w / 2],
-                                    [-l / 2, w / 2],
-                                    [-l / 2, -w / 2],
-                                    [l / 2, -w / 2]])
-                rotation = np.array([[np.cos(theta), np.sin(theta)],
-                                     [-np.sin(theta), np.cos(theta)]])
-                corners = np.dot(corners, rotation) + location
-                corners[:, 0] = corners[:, 0] + 40
-                corners[:, 1] = 40 - corners[:, 1]
-                corners = np.floor(corners / 0.25).astype(int)
-                new_occupancy = np.zeros((320, 320), dtype=np.uint8)
-                cv2.fillConvexPoly(new_occupancy, corners, 1)
-                if (new_occupancy.astype(bool) & prev_occupancy.astype(bool)).sum() > 0:
-                    continue
+                # location = pred_location_smoothed.squeeze().numpy()
+                # w, l = pred_wl.squeeze().numpy()
+                # theta = pred_theta.item()
+                # corners = np.array([[l / 2, w / 2],
+                #                     [-l / 2, w / 2],
+                #                     [-l / 2, -w / 2],
+                #                     [l / 2, -w / 2]])
+                # rotation = np.array([[np.cos(theta), np.sin(theta)],
+                #                      [-np.sin(theta), np.cos(theta)]])
+                # corners = np.dot(corners, rotation) + location
+                # corners[:, 0] = corners[:, 0] + 40
+                # corners[:, 1] = 40 - corners[:, 1]
+                # corners = np.floor(corners / 0.25).astype(int)
+                # new_occupancy = np.zeros((320, 320), dtype=np.uint8)
+                # cv2.fillConvexPoly(new_occupancy, corners, 1)
+                # if (new_occupancy.astype(bool) & prev_occupancy.astype(bool)).sum() > 0:
+                #     continue
                 break
 
         pred_bbox = torch.cat([pred_wl, pred_theta], dim=-1)
         bbox_f = self.pe_bbox(pred_bbox)
 
         f_in = torch.cat([
+            output_f,
             location_f,
             bbox_f
         ], dim=-1)  # (B, 128 + 192)
@@ -399,8 +401,8 @@ class AutoregressiveTransformer(nn.Module):
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             pred['bbox'] = torch.cat([pred['wl'], pred['theta']], dim=-1)
             pred['velocity'] = torch.cat([pred['s'], pred['omega']], dim=-1) * pred['moving']
-            occupancy = self._rasterize(samples['map'][:, 6:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :6], occupancy], dim=1)
+            occupancy = self._rasterize(samples['map'][:, 7:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
+            new_samples['map'] = torch.cat([samples['map'][:, :7], occupancy], dim=1)
             pred['location'] = self._discrete_loc(pred['location'])
             for i in range(B):
                 length = lengths[i].item()
@@ -497,7 +499,7 @@ class AutoregressiveTransformer(nn.Module):
                 decoder = self.decoder_bicyclist
             else:
                 decoder = self.decoder_vehicle
-            prev_occupancy = maps[0, 6].numpy()
+            prev_occupancy = maps[0, 7].numpy()
             probs, preds = self._decode(decoder, output_f, map_f, n_sample,
                                         prev_location=location,
                                         prev_occupancy=prev_occupancy)
@@ -507,12 +509,12 @@ class AutoregressiveTransformer(nn.Module):
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             preds['bbox'] = torch.cat([preds['wl'], preds['theta']], dim=-1)
             preds['velocity'] = torch.cat([preds['s'], preds['omega']], dim=-1) * preds['moving']
-            occupancy = self._rasterize(samples['map'][:, 6:],
+            occupancy = self._rasterize(samples['map'][:, 7:],
                                         preds['category'],
                                         preds['location'],
                                         preds['bbox'],
                                         preds['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :6], occupancy], dim=1)
+            new_samples['map'] = torch.cat([samples['map'][:, :7], occupancy], dim=1)
             for i in range(B):
                 length = lengths[i].item()
                 new_samples_one = {}

@@ -14,6 +14,7 @@ from .utils import get_homogeneous_matrix, cartesian_to_polar
 
 class NuScenesDataset(Dataset):
     layer_names = ['drivable_area',
+                   'carpark_area',
                    'ped_crossing',
                    'walkway',
                    'lane']

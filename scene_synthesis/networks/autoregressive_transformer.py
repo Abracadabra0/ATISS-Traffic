@@ -180,12 +180,12 @@ class AutoregressiveTransformer(nn.Module):
             pred_location = prob_location.sample()  # (B, )
             pred_location_smoothed = self._smooth_loc(pred_location)
         else:
-            while True:
+            for _ in range(10):
                 pred_location = self._max_prob_sample(prob_location, n_sample)
                 pred_location_smoothed = self._smooth_loc(pred_location)
-                # # reject previous location
+                # reject previous location
                 # if prev_location.size(1) > 0 and pred_location.item() < prev_location.max():
-                #     continue
+                    # continue
                 # reject overlapping location
                 row = int((40 - pred_location_smoothed.squeeze().numpy()[1]) / 0.25)
                 col = int((pred_location_smoothed.squeeze().numpy()[0] + 40) / 0.25)
@@ -210,27 +210,27 @@ class AutoregressiveTransformer(nn.Module):
             pred_wl = prob_wl.sample()
             pred_theta = prob_theta.sample()
         else:
-            while True:
+            for _ in range(10):
                 pred_wl = self._max_prob_sample(prob_wl, n_sample)
                 pred_theta = self._max_prob_sample(prob_theta, n_sample)
                 # reject overlapping bounding box
-                # location = pred_location_smoothed.squeeze().numpy()
-                # w, l = pred_wl.squeeze().numpy()
-                # theta = pred_theta.item()
-                # corners = np.array([[l / 2, w / 2],
-                #                     [-l / 2, w / 2],
-                #                     [-l / 2, -w / 2],
-                #                     [l / 2, -w / 2]])
-                # rotation = np.array([[np.cos(theta), np.sin(theta)],
-                #                      [-np.sin(theta), np.cos(theta)]])
-                # corners = np.dot(corners, rotation) + location
-                # corners[:, 0] = corners[:, 0] + 40
-                # corners[:, 1] = 40 - corners[:, 1]
-                # corners = np.floor(corners / 0.25).astype(int)
-                # new_occupancy = np.zeros((320, 320), dtype=np.uint8)
-                # cv2.fillConvexPoly(new_occupancy, corners, 1)
-                # if (new_occupancy.astype(bool) & prev_occupancy.astype(bool)).sum() > 0:
-                #     continue
+                location = pred_location_smoothed.squeeze().numpy()
+                w, l = pred_wl.squeeze().numpy()
+                theta = pred_theta.item()
+                corners = np.array([[l / 2, w / 2],
+                                    [-l / 2, w / 2],
+                                    [-l / 2, -w / 2],
+                                    [l / 2, -w / 2]])
+                rotation = np.array([[np.cos(theta), np.sin(theta)],
+                                     [-np.sin(theta), np.cos(theta)]])
+                corners = np.dot(corners, rotation) + location
+                corners[:, 0] = corners[:, 0] + 40
+                corners[:, 1] = 40 - corners[:, 1]
+                corners = np.floor(corners / 0.25).astype(int)
+                new_occupancy = np.zeros((320, 320), dtype=np.uint8)
+                cv2.fillConvexPoly(new_occupancy, corners, 1)
+                if (new_occupancy.astype(bool) & prev_occupancy.astype(bool)).sum() > 0:
+                    continue
                 break
 
         pred_bbox = torch.cat([pred_wl, pred_theta], dim=-1)
@@ -401,8 +401,8 @@ class AutoregressiveTransformer(nn.Module):
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             pred['bbox'] = torch.cat([pred['wl'], pred['theta']], dim=-1)
             pred['velocity'] = torch.cat([pred['s'], pred['omega']], dim=-1) * pred['moving']
-            occupancy = self._rasterize(samples['map'][:, 7:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :7], occupancy], dim=1)
+            object_layers = self._rasterize(samples['map'][:, 6:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
+            new_samples['map'] = torch.cat([samples['map'][:, :6], object_layers], dim=1)
             pred['location'] = self._discrete_loc(pred['location'])
             for i in range(B):
                 length = lengths[i].item()
@@ -499,7 +499,7 @@ class AutoregressiveTransformer(nn.Module):
                 decoder = self.decoder_bicyclist
             else:
                 decoder = self.decoder_vehicle
-            prev_occupancy = maps[0, 7].numpy()
+            prev_occupancy = maps[0, 6].numpy()
             probs, preds = self._decode(decoder, output_f, map_f, n_sample,
                                         prev_location=location,
                                         prev_occupancy=prev_occupancy)
@@ -509,12 +509,12 @@ class AutoregressiveTransformer(nn.Module):
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             preds['bbox'] = torch.cat([preds['wl'], preds['theta']], dim=-1)
             preds['velocity'] = torch.cat([preds['s'], preds['omega']], dim=-1) * preds['moving']
-            occupancy = self._rasterize(samples['map'][:, 7:],
+            object_layers = self._rasterize(samples['map'][:, 6:],
                                         preds['category'],
                                         preds['location'],
                                         preds['bbox'],
                                         preds['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :7], occupancy], dim=1)
+            new_samples['map'] = torch.cat([samples['map'][:, :6], object_layers], dim=1)
             for i in range(B):
                 length = lengths[i].item()
                 new_samples_one = {}

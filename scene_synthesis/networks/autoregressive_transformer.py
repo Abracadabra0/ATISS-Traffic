@@ -81,7 +81,7 @@ class AutoregressiveTransformer(nn.Module):
         self.q = nn.Parameter(torch.randn(self.d_model))
 
         # extract features from maps
-        self.feature_extractor = Extractor(13)
+        self.feature_extractor = Extractor(12)
 
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)

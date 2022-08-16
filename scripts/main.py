@@ -34,11 +34,11 @@ if __name__ == '__main__':
         'omega': 0.2
     })
     loss_fn.to(device)
-    model = AutoregressiveTransformer(loss_fn=loss_fn, lr=1e-3, scheduler=lr_func(1000), logger=writer)
+    model = AutoregressiveTransformer(loss_fn=loss_fn, lr=5e-4, scheduler=lr_func(1500), logger=writer)
     model.to(device)
     train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4,
                                   collate_fn=collate_train)
-    n_epochs = 400
+    n_epochs = 600
     iters = 0
 
     for epoch in range(n_epochs):

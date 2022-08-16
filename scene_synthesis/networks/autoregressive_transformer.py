@@ -33,11 +33,11 @@ class Decoder(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1))
         )
-        self.wl = get_mlp(self.d_model + 128, (1 + 2 + 2) * self.n_mixture)
-        self.theta = get_mlp(self.d_model + 128, (1 + 2 + 1) * self.n_mixture)
-        self.moving = get_mlp(self.d_model + 128 + 192, 1)
-        self.s = get_mlp(self.d_model + 128 + 192, (1 + 1 + 1) * self.n_mixture)
-        self.omega = get_mlp(self.d_model + 128 + 192, (1 + 2 + 1) * self.n_mixture)
+        self.wl = get_mlp(128, (1 + 2 + 2) * self.n_mixture)
+        self.theta = get_mlp(128, (1 + 2 + 1) * self.n_mixture)
+        self.moving = get_mlp(128 + 192, 1)
+        self.s = get_mlp(128 + 192, (1 + 1 + 1) * self.n_mixture)
+        self.omega = get_mlp(128 + 192, (1 + 2 + 1) * self.n_mixture)
 
     def forward(self, f, field):
         if field == 'location':
@@ -145,7 +145,7 @@ class AutoregressiveTransformer(nn.Module):
         f = f[..., self.n_mixture:].reshape(B, self.n_mixture, 3)
         cos = f[..., 0:1]
         sin = f[..., 1:2]
-        kappa = 7 + torch.exp(torch.clamp(f[..., 2:3], max=5))
+        kappa = 15 + torch.exp(torch.clamp(f[..., 2:3], max=5))
         norm = torch.sqrt(cos ** 2 + sin ** 2) + 1e-3
         cos = cos / norm
         sin = sin / norm
@@ -159,6 +159,31 @@ class AutoregressiveTransformer(nn.Module):
                        'sin': sin,
                        'kappa': kappa}
         return prob
+
+    def _mix_vonmises_delta(self, f, sin_theta, cos_theta):
+        # f: (B, (1 + 2 + 1) * self.n_mixture)
+        B = f.shape[0]
+        mixture = Categorical(logits=f[..., :self.n_mixture])
+        f = f[..., self.n_mixture:].reshape(B, self.n_mixture, 3)
+        cos_delta = f[..., 0:1]
+        sin_delta = f[..., 1:2]
+        kappa = 15 + torch.exp(torch.clamp(f[..., 2:3], max=5))
+        norm = torch.sqrt(cos_delta ** 2 + sin_delta ** 2) + 1e-3
+        cos_delta = cos_delta / norm
+        sin_delta = sin_delta / norm
+        sin = sin_theta * cos_delta + cos_theta * sin_delta
+        cos = cos_theta * cos_delta - sin_theta * sin_delta
+        mu = torch.arcsin(sin)
+        mu = torch.where(cos >= 0, mu, torch.sign(sin) * math.pi - mu)
+        prob = VonMises(mu, kappa)
+        prob = Independent(prob, reinterpreted_batch_ndims=1)
+        prob = MixtureSameFamily(mixture, prob)
+        prob.params = {'mixture': mixture.logits,
+                       'cos': cos,
+                       'sin': sin,
+                       'kappa': kappa}
+        return prob
+
 
     def _max_prob_sample(self, prob, n_sample):
         assert prob.batch_shape[0] == 1
@@ -198,7 +223,6 @@ class AutoregressiveTransformer(nn.Module):
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
 
         f_in = torch.cat([
-            output_f,
             location_f
         ], dim=-1)  # (B, 128)
         f_out = decoder(f_in, 'wl')
@@ -237,7 +261,6 @@ class AutoregressiveTransformer(nn.Module):
         bbox_f = self.pe_bbox(pred_bbox)
 
         f_in = torch.cat([
-            output_f,
             location_f,
             bbox_f
         ], dim=-1)  # (B, 128 + 192)
@@ -246,7 +269,7 @@ class AutoregressiveTransformer(nn.Module):
         f_out = decoder(f_in, 's')
         prob_s = self._mix_lognormal(f=f_out, event_shape=1)
         f_out = decoder(f_in, 'omega')
-        prob_omega = self._mix_vonmises(f=f_out)
+        prob_omega = self._mix_vonmises_delta(f=f_out, sin_theta=prob_theta.params['sin'], cos_theta=prob_theta.params['cos'])
         if n_sample == 1:
             pred_moving = prob_moving.sample()
             pred_s = prob_s.sample()

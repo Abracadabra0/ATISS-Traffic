@@ -194,32 +194,32 @@ class AutoregressiveTransformer(nn.Module):
         return pred
 
     def _decode(self, decoder, output_f, map_f,
+                gt=None,
                 n_sample=1,
-                prev_location=None,
                 prev_occupancy=None):
         B = output_f.size(0)
         f_in = torch.cat([output_f[:, None, :].expand(B, 6400, self.d_model), map_f], dim=-1)
         f_out = decoder(f_in, 'location')  # (B, 6400)
         prob_location = Categorical(logits=f_out)
+        location_f = []
         if n_sample == 1:
             pred_location = prob_location.sample()  # (B, )
             pred_location_smoothed = self._smooth_loc(pred_location)
+            # teacher forcing
+            for location_one, map_f_one in zip(gt['location'], map_f):
+                location_f.append(map_f_one[location_one])
         else:
             for _ in range(10):
                 pred_location = self._max_prob_sample(prob_location, n_sample)
                 pred_location_smoothed = self._smooth_loc(pred_location)
-                # reject previous location
-                # if prev_location.size(1) > 0 and pred_location.item() < prev_location.max():
-                    # continue
                 # reject overlapping location
                 row = int((40 - pred_location_smoothed.squeeze().numpy()[1]) / 0.25)
                 col = int((pred_location_smoothed.squeeze().numpy()[0] + 40) / 0.25)
                 if prev_occupancy[row, col]:
                     continue
                 break
-        location_f = []
-        for location_one, map_f_one in zip(pred_location, map_f):
-            location_f.append(map_f_one[location_one])
+            for location_one, map_f_one in zip(pred_location, map_f):
+                location_f.append(map_f_one[location_one])
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
 
         f_in = torch.cat([
@@ -322,11 +322,14 @@ class AutoregressiveTransformer(nn.Module):
             occupancy = np.zeros((320, 320), dtype=np.uint8)
             cv2.fillConvexPoly(occupancy, corners, 255)
             object_layers[i, 0] = np.where(occupancy > 0, 1., object_layers[i, 0])
-            object_layers[i, 1] = np.where(occupancy > 0, np.sin(theta), object_layers[i, 1])
-            object_layers[i, 2] = np.where(occupancy > 0, np.cos(theta), object_layers[i, 2])
-            object_layers[i, 3] = np.where(occupancy > 0, speed, object_layers[i, 3])
-            object_layers[i, 4] = np.where(occupancy > 0, np.sin(heading), object_layers[i, 4])
-            object_layers[i, 5] = np.where(occupancy > 0, np.cos(heading), object_layers[i, 5])
+
+            row = int((40 - location[i, 1]) / 0.25)
+            col = int((location[i, 0] + 40) / 0.25)
+            object_layers[i, 1, row, col] = np.sin(theta)
+            object_layers[i, 2, row, col] = np.cos(theta)
+            object_layers[i, 3, row, col] = speed
+            object_layers[i, 4, row, col] = np.sin(heading)
+            object_layers[i, 5, row, col] = np.cos(heading)
 
         return torch.tensor(object_layers, dtype=torch.float32, device=device)
 
@@ -374,7 +377,7 @@ class AutoregressiveTransformer(nn.Module):
         loss_select = []
         pred_select = []
         for decoder in [self.decoder_pedestrian, self.decoder_bicyclist, self.decoder_vehicle]:
-            probs, preds = self._decode(decoder, output_f, map_f)
+            probs, preds = self._decode(decoder, output_f, map_f, gt=gt)
             probs["category"] = prob_category
             loss_components = self.loss_fn(probs, gt)
             loss_select.append(loss_components)
@@ -523,8 +526,8 @@ class AutoregressiveTransformer(nn.Module):
             else:
                 decoder = self.decoder_vehicle
             prev_occupancy = maps[0, 6].numpy()
-            probs, preds = self._decode(decoder, output_f, map_f, n_sample,
-                                        prev_location=location,
+            probs, preds = self._decode(decoder, output_f, map_f, 
+                                        n_sample=n_sample,
                                         prev_occupancy=prev_occupancy)
             probs['category'] = prob_category
             preds['category'] = torch.tensor([pred_category])

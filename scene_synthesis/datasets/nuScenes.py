@@ -16,7 +16,8 @@ class NuScenesDataset(Dataset):
     layer_names = ['drivable_area',
                    'ped_crossing',
                    'walkway',
-                   'lane']
+                   'lane',
+                   'road_segment']
     Q = 0
     PEDESTRIAN = 1
     BICYCLIST = 2
@@ -84,6 +85,7 @@ class NuScenesDataset(Dataset):
                 rot = np.array([[np.cos(rad), -np.sin(rad)], [np.sin(rad), np.cos(rad)]])
                 rot_inv = np.array([[np.cos(rad), np.sin(rad)], [-np.sin(rad), np.cos(rad)]])
 
+                # parse center lines
                 patch = (pose['translation'][0] - axes_limit * np.sqrt(2),
                          pose['translation'][1] - axes_limit * np.sqrt(2),
                          pose['translation'][0] + axes_limit * np.sqrt(2),
@@ -92,7 +94,6 @@ class NuScenesDataset(Dataset):
                 center_lines = {}
                 for lane_token in lane_tokens:
                     center_lines[lane_token] = {}
-
                     lane_record = nusc_map.get_arcline_path(lane_token)
                     arcs = arcline_path_utils.discretize_lane(lane_record, resolution_meters=1)
                     arcs = np.array(arcs)
@@ -104,7 +105,6 @@ class NuScenesDataset(Dataset):
                                                  and -axes_limit * 2 < x[1] < axes_limit * 2,
                                        list(arcs)))
                     center_lines[lane_token]['arcs'] = np.array(arcs)
-
                     node_tokens = nusc_map.get('lane', lane_token)['exterior_node_tokens']
                     nodes = []
                     for node_token in node_tokens:
@@ -113,17 +113,23 @@ class NuScenesDataset(Dataset):
                     nodes = np.stack(nodes, axis=0)
                     center_lines[lane_token]['nodes'] = nodes
 
+                # get map masks
+                # scaled: drivable_area, ped_crossing, walkway, lane, road_segment
                 map_mask = nusc_map.get_map_mask(patch_box, patch_angle, cls.layer_names, canvas_size=None)
                 map_mask = np.flip(map_mask, 1)
-                scaled = []
-                for layer in map_mask:
-                    scaled.append(cv2.resize(layer, (wl, wl)))
-                lane_mask = scaled[-1]
-                orientation = np.zeros_like(lane_mask, dtype=float)
+                drivable_area = cv2.resize(map_mask[0], (wl, wl))
+                ped_crossing = cv2.resize(map_mask[1], (wl, wl))
+                walkway = cv2.resize(map_mask[2], (wl, wl))
+                lane = cv2.resize(map_mask[3], (wl, wl))
+                road_segment = cv2.resize(map_mask[4], (wl, wl))
+
+                # get lane orientation
+                lane_pts = []
+                orientation = np.zeros_like(lane, dtype=float)
                 hit = lane_tokens[0]
                 for row in range(orientation.shape[0]):
                     for col in range(orientation.shape[1]):
-                        if lane_mask[row, col]:
+                        if lane[row, col]:
                             coord = np.array([(col - 160) * 0.25, (160 - row) * 0.25])
                             coord_global = np.dot(coord, rot_inv) + pose['translation'][:2]
                             result = -1.0
@@ -136,18 +142,57 @@ class NuScenesDataset(Dataset):
                                     hit = lane_token
                                     break
                             if result < 0:
-                                lane_mask[row, col] = 0
+                                lane[row, col] = 0
                                 continue
                             arcs = center_lines[hit]['arcs']
                             dist = np.linalg.norm(coord - arcs[:, :2], axis=1)
                             argmin = np.argmin(dist)
                             orientation[row, col] = arcs[argmin, 2]
-                scaled.append(orientation)
-                map_mask = np.stack(scaled, axis=0)
+                            lane_pts.append(np.array([row, col]))
+                lane_pts = np.array(lane_pts)
+
+                # get road_segment orientation
+                bg = 1 - road_segment
+                road_segment = np.where(lane == 0, road_segment, 0)
+                dst_map = cv2.distanceTransform(road_segment + bg, cv2.DIST_L2, cv2.DIST_MASK_3) * road_segment
+                grad_x = cv2.Sobel(dst_map, -1, 1, 0, ksize=7)
+                grad_y = cv2.Sobel(dst_map, -1, 0, 1, ksize=7)
+                grad = np.stack([grad_x, grad_y], axis=0)  # (2, 320, 320)
+                grad_norm = np.linalg.norm(grad, axis=0)
+                grad = np.where(grad_norm > 0, grad / grad_norm, grad)
+                for row in range(road_segment.shape[0]):
+                    for col in range(road_segment.shape[1]):
+                        if grad_norm[row, col] > 0:
+                            dst = np.linalg.norm(lane_pts - np.array([row, col]), axis=1)
+                            closest = lane_pts[dst.argmin()]
+                            target = orientation[closest[0], closest[1]]
+                            target = np.array([np.cos(target), np.sin(target)])
+                            x, y = grad[:, row, col]
+                            possible = np.array([
+                                [x, y],
+                                [-y, x],
+                                [-x, -y],
+                                [y, -x]
+                            ])
+                            inner = np.dot(possible, target)
+                            result = possible[inner.argmax()]
+                            angle = np.arcsin(result[1])
+                            if result[0] < 0:
+                                angle = np.sign(angle) * np.pi - angle
+                            orientation[row, col] = angle
+                lane = lane + road_segment
+
+                map_layers = np.stack([
+                    drivable_area,
+                    ped_crossing,
+                    walkway,
+                    lane,
+                    orientation
+                ], axis=0)
 
                 # convert to torch.tensor and save it
-                map_mask = torch.tensor(map_mask.copy(), dtype=torch.float32)
-                torch.save(map_mask, 'map')
+                map_layers = torch.tensor(map_layers.copy(), dtype=torch.float32)
+                torch.save(map_layers, 'map')
 
                 # retrieve all objects that fall inside the boundaries
                 _, boxes, _ = nusc.get_sample_data(sample['data']['LIDAR_TOP'], box_vis_level=BoxVisibility.ALL,

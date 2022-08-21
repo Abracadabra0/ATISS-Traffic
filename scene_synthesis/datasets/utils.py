@@ -178,9 +178,12 @@ def rasterize_objects(category, location, bbox, velocity):
         occupancy = np.zeros((320, 320), dtype=np.uint8)
         cv2.fillConvexPoly(occupancy, corners, 255)
         maps['occupancy'] = np.where(occupancy > 0, 1., maps['occupancy'])
-        maps['orientation'] = np.where(occupancy > 0, theta, maps['orientation'])
-        maps['speed'] = np.where(occupancy > 0, speed, maps['speed'])
-        maps['heading'] = np.where(occupancy > 0, heading, maps['heading'])
+
+        row = int((40 - location[i, 1]) / 0.25)
+        col = int((location[i, 0] + 40) / 0.25)
+        maps['orientation'][row, col] = theta
+        maps['speed'][row, col] = speed
+        maps['heading'][row, col] = heading
     for k in ['occupancy', 'orientation', 'speed', 'heading']:
         maps[k] = torch.tensor(maps[k], dtype=torch.float32).unsqueeze(0)
     return maps

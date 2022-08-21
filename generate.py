@@ -23,7 +23,7 @@ dataset = NuScenesDataset("../../data/nuScene-processed/test")
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 model = AutoregressiveTransformer()
-model.load_state_dict(torch.load('./ckpts/08-16-05:28:29'))
+model.load_state_dict(torch.load('./ckpts/08-21-00:55:26'))
 
 for i_data, data in enumerate(dataset):
     input_data, length = collate_test([data], keep=0)

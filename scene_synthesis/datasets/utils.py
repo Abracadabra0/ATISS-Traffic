@@ -95,10 +95,10 @@ def collate_train(samples, window_size=1):
     angles = np.random.rand(len(samples)) * 360
     for sample, angle in zip(samples, angles):
         sample['map'] = F.rotate(sample['map'], angle)
-        # drivable_area, ped_crossing, walkway, lane, orientation
-        base_layers = sample['map'][:4]
+        # drivable_area, ped_crossing, walkway, lane, lane_divider, orientation
+        base_layers = sample['map'][0:5]
         lane = sample['map'][3:4]
-        orientation = sample['map'][4:]
+        orientation = sample['map'][5:6]
         rad = angle / 180 * np.pi
         rotation_mat = torch.tensor([[np.cos(rad), np.sin(rad)], [-np.sin(rad), np.cos(rad)]], dtype=torch.float32)
         orientation += rad
@@ -134,18 +134,24 @@ def collate_train(samples, window_size=1):
                                           sample['location'][:keep_length],
                                           sample['bbox'][:keep_length],
                                           sample['velocity'][:keep_length])
-        # drivable_area, ped_crossing, walkway, lane, orientation(sin), orientation(cos),
-        # occupancy, orientation(sin), orientation(cos), speed,
-        # heading(sin), heading(cos)
-        # 12 layers in total
+        # drivable_area, ped_crossing, walkway, lane, lane_divider, orientation(sin), orientation(cos),
+        # (occupancy, orientation(sin), orientation(cos), speed, heading(sin), heading(cos)) * 3
+        # 25 layers in total
+        for name in range(1, 4):
+            layers = object_layers[name]
+            object_layers[name] = torch.cat([
+                layers['occupancy'],
+                torch.sin(layers['orientation']) * layers['occupancy'],
+                torch.cos(layers['orientation']) * layers['occupancy'],
+                layers['speed'],
+                torch.sin(layers['heading']) * layers['occupancy'],
+                torch.cos(layers['heading']) * layers['occupancy']
+            ], dim=0)
         all_layers = torch.cat([
             sample['map'],
-            object_layers['occupancy'],
-            torch.sin(object_layers['orientation']) * object_layers['occupancy'],
-            torch.cos(object_layers['orientation']) * object_layers['occupancy'],
-            object_layers['speed'],
-            torch.sin(object_layers['heading']) * object_layers['occupancy'],
-            torch.cos(object_layers['heading']) * object_layers['occupancy']
+            object_layers[1],
+            object_layers[2],
+            object_layers[3]
         ], dim=0)
         maps.append(all_layers)
     for field in fields:
@@ -161,8 +167,12 @@ def rasterize_objects(category, location, bbox, velocity):
     bbox = bbox.numpy()
     velocity = velocity.numpy()
     L = category.shape[0]
-    maps = {k: np.zeros((320, 320), dtype=np.float32) for k in ['occupancy', 'orientation', 'speed', 'heading']}
+    object_layers = {k: None for k in range(1, 4)}
+    for name in object_layers:
+        object_layers[name] = {k: np.zeros((320, 320), dtype=np.float32)
+                               for k in ['occupancy', 'orientation', 'speed', 'heading']}
     for i in range(L):
+        layers = object_layers[category[i]]
         w, l, theta = bbox[i]
         speed, heading = velocity[i]
         corners = np.array([[l / 2, w / 2],
@@ -177,13 +187,13 @@ def rasterize_objects(category, location, bbox, velocity):
         corners = np.floor(corners / 0.25).astype(int)
         occupancy = np.zeros((320, 320), dtype=np.uint8)
         cv2.fillConvexPoly(occupancy, corners, 255)
-        maps['occupancy'] = np.where(occupancy > 0, 1., maps['occupancy'])
-
+        layers['occupancy'] = np.where(occupancy > 0, 1., layers['occupancy'])
         row = int((40 - location[i, 1]) / 0.25)
         col = int((location[i, 0] + 40) / 0.25)
-        maps['orientation'][row, col] = theta
-        maps['speed'][row, col] = speed
-        maps['heading'][row, col] = heading
-    for k in ['occupancy', 'orientation', 'speed', 'heading']:
-        maps[k] = torch.tensor(maps[k], dtype=torch.float32).unsqueeze(0)
-    return maps
+        layers['orientation'][row, col] = theta
+        layers['speed'][row, col] = speed
+        layers['heading'][row, col] = heading
+    for name in range(1, 4):
+        for k in ['occupancy', 'orientation', 'speed', 'heading']:
+            object_layers[name][k] = torch.tensor(object_layers[name][k], dtype=torch.float32).unsqueeze(0)
+    return object_layers

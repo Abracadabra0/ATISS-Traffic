@@ -307,6 +307,7 @@ class AutoregressiveTransformer(nn.Module):
         for i in range(B):
             if category[i] == 0:
                 continue
+            working_layers = object_layers[(category[i] - 1) * 6:category[i] * 6]
             w, l, theta = bbox[i]
             speed, heading = velocity[i]
             corners = np.array([[l / 2, w / 2],
@@ -321,15 +322,15 @@ class AutoregressiveTransformer(nn.Module):
             corners = np.floor(corners / 0.25).astype(int)
             occupancy = np.zeros((320, 320), dtype=np.uint8)
             cv2.fillConvexPoly(occupancy, corners, 255)
-            object_layers[i, 0] = np.where(occupancy > 0, 1., object_layers[i, 0])
+            working_layers[i, 0] = np.where(occupancy > 0, 1., working_layers[i, 0])
 
             row = int((40 - location[i, 1]) / 0.25)
             col = int((location[i, 0] + 40) / 0.25)
-            object_layers[i, 1, row, col] = np.sin(theta)
-            object_layers[i, 2, row, col] = np.cos(theta)
-            object_layers[i, 3, row, col] = speed
-            object_layers[i, 4, row, col] = np.sin(heading)
-            object_layers[i, 5, row, col] = np.cos(heading)
+            working_layers[i, 1, row, col] = np.sin(theta)
+            working_layers[i, 2, row, col] = np.cos(theta)
+            working_layers[i, 3, row, col] = speed
+            working_layers[i, 4, row, col] = np.sin(heading)
+            working_layers[i, 5, row, col] = np.cos(heading)
 
         return torch.tensor(object_layers, dtype=torch.float32, device=device)
 

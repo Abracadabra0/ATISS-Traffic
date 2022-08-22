@@ -39,9 +39,9 @@ def collate_test(samples, keep='random'):
     fields = ['category', 'location', 'bbox', 'velocity']
     for sample in samples:
         # drivable_area, ped_crossing, walkway, lane, orientation
-        base_layers = sample['map'][:4]
+        base_layers = sample['map'][0:5]
         lane = sample['map'][3:4]
-        orientation = sample['map'][4:]
+        orientation = sample['map'][5:6]
         sample['map'] = torch.cat([base_layers,
                                    torch.sin(orientation) * lane,
                                    torch.cos(orientation) * lane], dim=0)
@@ -69,18 +69,24 @@ def collate_test(samples, keep='random'):
                                           sample['location'][:keep_length],
                                           sample['bbox'][:keep_length],
                                           sample['velocity'][:keep_length])
-        # drivable_area, ped_crossing, walkway, lane, orientation(sin), orientation(cos),
-        # occupancy, orientation(sin), orientation(cos), speed,
-        # heading(sin), heading(cos)
-        # 12 layers in total
+        # drivable_area, ped_crossing, walkway, lane, lane_divider, orientation(sin), orientation(cos),
+        # (occupancy, orientation(sin), orientation(cos), speed, heading(sin), heading(cos)) * 3
+        # 25 layers in total
+        for name in range(1, 4):
+            layers = object_layers[name]
+            object_layers[name] = torch.cat([
+                layers['occupancy'],
+                torch.sin(layers['orientation']) * layers['occupancy'],
+                torch.cos(layers['orientation']) * layers['occupancy'],
+                layers['speed'],
+                torch.sin(layers['heading']) * layers['occupancy'],
+                torch.cos(layers['heading']) * layers['occupancy']
+            ], dim=0)
         all_layers = torch.cat([
             sample['map'],
-            object_layers['occupancy'],
-            torch.sin(object_layers['orientation']) * object_layers['occupancy'],
-            torch.cos(object_layers['orientation']) * object_layers['occupancy'],
-            object_layers['speed'],
-            torch.sin(object_layers['heading']) * object_layers['occupancy'],
-            torch.cos(object_layers['heading']) * object_layers['occupancy']
+            object_layers[1],
+            object_layers[2],
+            object_layers[3]
         ], dim=0)
         maps.append(all_layers)
     for field in fields:

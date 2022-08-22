@@ -81,7 +81,7 @@ class AutoregressiveTransformer(nn.Module):
         self.q = nn.Parameter(torch.randn(self.d_model))
 
         # extract features from maps
-        self.feature_extractor = Extractor(12)
+        self.feature_extractor = Extractor(25)
 
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)
@@ -307,7 +307,7 @@ class AutoregressiveTransformer(nn.Module):
         for i in range(B):
             if category[i] == 0:
                 continue
-            working_layers = object_layers[(category[i] - 1) * 6:category[i] * 6]
+            working_layers = object_layers[i, (category[i] - 1) * 6:category[i] * 6]
             w, l, theta = bbox[i]
             speed, heading = velocity[i]
             corners = np.array([[l / 2, w / 2],
@@ -322,15 +322,15 @@ class AutoregressiveTransformer(nn.Module):
             corners = np.floor(corners / 0.25).astype(int)
             occupancy = np.zeros((320, 320), dtype=np.uint8)
             cv2.fillConvexPoly(occupancy, corners, 255)
-            working_layers[i, 0] = np.where(occupancy > 0, 1., working_layers[i, 0])
+            working_layers[0] = np.where(occupancy > 0, 1., working_layers[0])
 
             row = int((40 - location[i, 1]) / 0.25)
             col = int((location[i, 0] + 40) / 0.25)
-            working_layers[i, 1, row, col] = np.sin(theta)
-            working_layers[i, 2, row, col] = np.cos(theta)
-            working_layers[i, 3, row, col] = speed
-            working_layers[i, 4, row, col] = np.sin(heading)
-            working_layers[i, 5, row, col] = np.cos(heading)
+            working_layers[1, row, col] = np.sin(theta)
+            working_layers[2, row, col] = np.cos(theta)
+            working_layers[3, row, col] = speed
+            working_layers[4, row, col] = np.sin(heading)
+            working_layers[5, row, col] = np.cos(heading)
 
         return torch.tensor(object_layers, dtype=torch.float32, device=device)
 
@@ -428,8 +428,8 @@ class AutoregressiveTransformer(nn.Module):
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             pred['bbox'] = torch.cat([pred['wl'], pred['theta']], dim=-1)
             pred['velocity'] = torch.cat([pred['s'], pred['omega']], dim=-1) * pred['moving']
-            object_layers = self._rasterize(samples['map'][:, 6:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :6], object_layers], dim=1)
+            object_layers = self._rasterize(samples['map'][:, 7:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
+            new_samples['map'] = torch.cat([samples['map'][:, :7], object_layers], dim=1)
             pred['location'] = self._discrete_loc(pred['location'])
             for i in range(B):
                 length = lengths[i].item()
@@ -536,12 +536,12 @@ class AutoregressiveTransformer(nn.Module):
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             preds['bbox'] = torch.cat([preds['wl'], preds['theta']], dim=-1)
             preds['velocity'] = torch.cat([preds['s'], preds['omega']], dim=-1) * preds['moving']
-            object_layers = self._rasterize(samples['map'][:, 6:],
+            object_layers = self._rasterize(samples['map'][:, 7:],
                                         preds['category'],
                                         preds['location'],
                                         preds['bbox'],
                                         preds['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :6], object_layers], dim=1)
+            new_samples['map'] = torch.cat([samples['map'][:, :7], object_layers], dim=1)
             for i in range(B):
                 length = lengths[i].item()
                 new_samples_one = {}

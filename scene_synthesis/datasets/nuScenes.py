@@ -54,7 +54,7 @@ class NuScenesDataset(Dataset):
         os.chdir(output_path)
         os.makedirs('train', exist_ok=True)
         os.makedirs('test', exist_ok=True)
-        train_scenes = int(len(nusc.scene) * 0.8)
+        train_scenes = 5
         i = 0
         for scene in nusc.scene:
             if scene['token'] in ['325cef682f064c55a255f2625c533b75', 'bebf5f5b2a674631ab5c88fd1aa9e87a', 'fcbccedd61424f1b85dcbf8f897f9754']:
@@ -257,4 +257,4 @@ class NuScenesDataset(Dataset):
         for filename in os.listdir(path):
             datapath = os.path.join(path, filename)
             data[filename] = torch.load(datapath)
-        return data, self.samples[idx]
+        return data

@@ -23,7 +23,7 @@ dataset = NuScenesDataset("../../data/nuScene-processed/test")
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 model = AutoregressiveTransformer()
-model.load_state_dict(torch.load('./ckpts/08-21-00:55:26'))
+model.load_state_dict(torch.load('./ckpts/08-22-01:39:37'))
 
 for i_data, data in enumerate(dataset):
     input_data, length = collate_test([data], keep=0)
@@ -45,7 +45,15 @@ for i_data, data in enumerate(dataset):
             break
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    map_layers = np.stack(input_data['map'][0, :3], axis=-1) * 0.2
+    drivable_area = input_data['map'][0, 0]
+    ped_crossing = input_data['map'][0, 1]
+    walkway = input_data['map'][0, 2]
+    lane_divider = input_data['map'][0, 4]
+    map_layers = np.stack([
+        drivable_area + lane_divider,
+        ped_crossing,
+        walkway
+    ], axis=-1) * 0.2
     ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
     for i in range(length.item()):
         if input_data['category'][0, i] != 0:

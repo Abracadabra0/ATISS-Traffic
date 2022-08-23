@@ -16,6 +16,7 @@ class NuScenesDataset(Dataset):
     layer_names = ['drivable_area',
                    'ped_crossing',
                    'walkway',
+                   'carpark_area',
                    'lane',
                    'lane_divider',
                    'road_segment']
@@ -57,8 +58,6 @@ class NuScenesDataset(Dataset):
         train_scenes = 8
         i = 0
         for scene in nusc.scene:
-            # if scene['token'] in ['325cef682f064c55a255f2625c533b75', 'bebf5f5b2a674631ab5c88fd1aa9e87a', 'fcbccedd61424f1b85dcbf8f897f9754']:
-            #     continue
             if i < train_scenes:
                 os.chdir('train')
             else:
@@ -115,16 +114,17 @@ class NuScenesDataset(Dataset):
                     center_lines[lane_token]['nodes'] = nodes
 
                 # get map masks
-                # scaled: drivable_area, ped_crossing, walkway,
+                # scaled: drivable_area, ped_crossing, walkway, carpark_area,
                 # lane, lane_divider, road_segment
                 map_mask = nusc_map.get_map_mask(patch_box, patch_angle, cls.layer_names, canvas_size=None)
                 map_mask = np.flip(map_mask, 1)
                 drivable_area = cv2.resize(map_mask[0], (wl, wl))
                 ped_crossing = cv2.resize(map_mask[1], (wl, wl))
                 walkway = cv2.resize(map_mask[2], (wl, wl))
-                lane = cv2.resize(map_mask[3], (wl, wl))
-                lane_divider = cv2.resize(map_mask[4], (wl, wl))
-                road_segment = cv2.resize(map_mask[5], (wl, wl))
+                carpark_area = cv2.resize(map_mask[3], (wl, wl))
+                lane = cv2.resize(map_mask[4], (wl, wl))
+                lane_divider = cv2.resize(map_mask[5], (wl, wl))
+                road_segment = cv2.resize(map_mask[6], (wl, wl))
 
                 # get lane orientation
                 lane_pts = []
@@ -189,6 +189,7 @@ class NuScenesDataset(Dataset):
                     drivable_area,
                     ped_crossing,
                     walkway,
+                    carpark_area,
                     lane,
                     lane_divider,
                     orientation

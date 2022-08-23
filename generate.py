@@ -83,3 +83,4 @@ for i_data, batch in enumerate(dataloader):
     ax.set_ylim([-axes_limit, axes_limit])
 
     fig.savefig(f"./result/test-{i_data}.png")
+    plt.close(fig)

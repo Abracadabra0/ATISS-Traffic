@@ -1,4 +1,4 @@
-from scene_synthesis.datasets.nuScenes import NuScenesDataset
+from datasets import NuScenesDataset
 
 
 if __name__ == '__main__':

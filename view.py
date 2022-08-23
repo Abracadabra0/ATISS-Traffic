@@ -37,9 +37,12 @@ for data, name in dataset:
             loc = input_data['location'][0, i].numpy()
             ax.plot(loc[0], loc[1], 'x', color=color)
             w, l, theta = input_data['bbox'][0, i].numpy()
-            corners = np.array([[l / 2, 0],
+            corners = np.array([[0, 0],
+                                [l / 2, 0],
+                                [l / 2, w / 2],
                                 [-l / 2, w / 2],
                                 [-l / 2, -w / 2],
+                                [l / 2, -w / 2],
                                 [l / 2, 0]])
             rotation = np.array([[np.cos(theta), np.sin(theta)],
                                  [-np.sin(theta), np.cos(theta)]])

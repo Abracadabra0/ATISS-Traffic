@@ -10,6 +10,8 @@ from nuscenes.map_expansion import arcline_path_utils
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.geometry_utils import BoxVisibility
 from .utils import get_homogeneous_matrix, cartesian_to_polar
+from tqdm import tqdm
+from multiprocessing import Pool
 
 
 class NuScenesDataset(Dataset):

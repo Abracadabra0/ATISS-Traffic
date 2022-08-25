@@ -154,6 +154,7 @@ class NuScenesDataset(Dataset):
                             argmin = np.argmin(dist)
                             orientation[row, col] = arcs[argmin, 2]
                             lane_pts.append(np.array([row, col]))
+                lane_pts = lane_pts[0:-1:7]
                 lane_pts = np.array(lane_pts)
 
                 # get road_segment orientation
@@ -237,10 +238,10 @@ class NuScenesDataset(Dataset):
                 bbox.append(np.zeros(3))
                 velocity.append(np.zeros(2))
                 # convert to tensor and save
-                torch.save(torch.tensor(category, dtype=torch.int64), 'category')
-                torch.save(torch.tensor(location, dtype=torch.float32), 'location')
-                torch.save(torch.tensor(bbox, dtype=torch.float32), 'bbox')
-                torch.save(torch.tensor(velocity, dtype=torch.float32), 'velocity')
+                torch.save(torch.tensor(np.array(category), dtype=torch.int64), 'category')
+                torch.save(torch.tensor(np.array(location), dtype=torch.float32), 'location')
+                torch.save(torch.tensor(np.array(bbox), dtype=torch.float32), 'bbox')
+                torch.save(torch.tensor(np.array(velocity), dtype=torch.float32), 'velocity')
 
                 os.chdir('..')
                 sample_token = sample['next']

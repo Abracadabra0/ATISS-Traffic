@@ -4,7 +4,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import LambdaLR
-from datasets import NuScenesDataset, BatchProcessor, collate_fn
+from datasets import NuScenesDataset, AutoregressiveProcessor, collate_fn
 from networks.autoregressive_transformer import AutoregressiveTransformer
 import numpy as np
 from losses.nll import WeightedNLL, lr_func
@@ -19,7 +19,7 @@ if __name__ == '__main__':
     os.makedirs('./ckpts', exist_ok=True)
     dataset = NuScenesDataset("../../data/nuScene-processed/train")
     dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4, collate_fn=collate_fn)
-    processor = BatchProcessor(device).train()
+    processor = AutoregressiveProcessor(device).train()
     loss_fn = WeightedNLL(weights={
         'category': 0.1,
         'location': 1.,

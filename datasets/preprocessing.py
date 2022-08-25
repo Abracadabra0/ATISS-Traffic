@@ -239,9 +239,9 @@ class ScoreModelProcessor:
                 batch[field][i] = batch[field][i][:batch['length'][i]]
 
         if self.state == 'train':
-            batch, gt = self.train_process(batch)
+            batch = self.train_process(batch)
         else:
-            batch, gt = self.test_process(batch)
+            batch = self.test_process(batch)
 
         batch['map'] = torch.stack(batch['map'], dim=0)
         batch['placing'] = torch.stack(batch['placing'], dim=0).to(self.device)
@@ -355,5 +355,5 @@ class ScoreModelProcessor:
             batch['map'][i] = torch.cat([batch['map'][i], object_layers], dim=0)
 
             placing[0] = np.where((placing[1] + placing[2] + placing[3]) == 0, 1, 0)
-            batch['placing'].append(torch.tensor(placing))
+            batch['placing'].append(torch.tensor(placing, dtype=torch.float32))
         return batch

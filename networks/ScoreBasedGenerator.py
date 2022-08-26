@@ -24,14 +24,13 @@ class Generator(nn.Module):
         self.extractor = Extractor(26)
         self._eps = 1e-5
 
-    def forward(self, x, map_layers, t=None):
-        fmap = self.extractor(map_layers)
+    def forward(self, x, t=None):
         if t is None:
             t = torch.rand(x.shape[0], device=x.device) * (1 - self._eps) + self._eps
         z = torch.randn_like(x)
         std = self.marginal_prob_std_fn(t)
         perturbed_x = x + z * std[:, None, None, None]
-        score = self.score_net(perturbed_x, t, fmap)
+        score = self.score_net(perturbed_x, t)
         loss = torch.mean(torch.sum((score * std[:, None, None, None] + z) ** 2, dim=(1, 2, 3)))
         return score, loss
 
@@ -40,7 +39,7 @@ class Generator(nn.Module):
         B = map_layers.shape[0]
         device = map_layers.device
         init_t = torch.ones(B, device=device)
-        init_x = torch.randn(B, 4, 80, 80, device=device) * self.marginal_prob_std_fn(init_t)[:, None, None, None]
+        init_x = torch.randn(B, 3, 800, 800, device=device) * self.marginal_prob_std_fn(init_t)[:, None, None, None]
         time_steps = np.linspace(1., self._eps, num_steps)
         step_size = time_steps[0] - time_steps[1]
         x = init_x
@@ -48,7 +47,7 @@ class Generator(nn.Module):
             for time_step in tqdm(time_steps):
                 t = torch.ones(B, device=device) * time_step
                 # Corrector step (Langevin MCMC)
-                score, _ = self.forward(x, map_layers, t=t)
+                score, _ = self.forward(x, t=t)
                 score_norm = torch.norm(score.reshape(score.shape[0], -1), dim=-1).mean()
                 noise_norm = np.sqrt(np.prod(x.shape[1:]))
                 langevin_step_size = 2 * (snr * noise_norm / score_norm) ** 2

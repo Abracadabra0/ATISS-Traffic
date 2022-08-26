@@ -312,7 +312,7 @@ class ScoreModelProcessor:
             velocity = batch['velocity'][i].numpy()
             L = category.shape[0]
             object_layers = {k: None for k in [1, 2, 3]}
-            placing = np.zeros((4, 80, 80))
+            placing = np.zeros((3, 800, 800))
             for type_id in [1, 2, 3]:
                 object_layers[type_id] = {k: np.zeros((self.wl, self.wl), dtype=np.float32)
                                           for k in ['occupancy', 'orientation', 'speed', 'heading']}
@@ -336,9 +336,11 @@ class ScoreModelProcessor:
                 working_layers['orientation'][row, col] = theta
                 working_layers['speed'][row, col] = speed
                 working_layers['heading'][row, col] = heading
-                row = int(self.axes_limit - location[j, 1])
-                col = int(location[j, 0] + self.axes_limit)
-                placing[category[j], row, col] = 1
+
+                # convert to opencv coordinate
+                x = int((location[j, 0] + 40) / 0.1)
+                y = int((40 - location[j, 1]) / 0.1)
+                cv2.circle(placing[category[j] - 1], (x, y), 10, 1)
 
             for type_id in [1, 2, 3]:
                 tmp = object_layers[type_id]
@@ -354,6 +356,5 @@ class ScoreModelProcessor:
             object_layers = torch.tensor(object_layers, dtype=torch.float32).to(self.device)
             batch['map'][i] = torch.cat([batch['map'][i], object_layers], dim=0)
 
-            placing[0] = np.where((placing[1] + placing[2] + placing[3]) == 0, 1, 0)
             batch['placing'].append(torch.tensor(placing, dtype=torch.float32))
         return batch

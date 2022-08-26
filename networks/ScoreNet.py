@@ -74,40 +74,33 @@ class EncodeLayer(nn.Module):
     def __init__(self, in_channels, out_channels, t_dim):
         super().__init__()
         self.dense = Dense(t_dim, out_channels)
-        self.cond = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, stride=2, padding=1),
-            nn.GroupNorm(4, num_channels=out_channels),
-            SwishActivation()
-        )
-        self.conv1 = nn.Conv2d(in_channels * 2, out_channels, 3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride=1, padding=1)
         self.gnorm1 = nn.GroupNorm(4, num_channels=out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, 3, stride=2, padding=1)
         self.gnorm2 = nn.GroupNorm(4, num_channels=out_channels)
         self.act = lambda x: x * torch.sigmoid(x)
 
-    def forward(self, h, t, fmap):
-        h = torch.cat([h, fmap], dim=1)
+    def forward(self, h, t):
         h = self.conv1(h)
         h = self.act(self.gnorm1(h))
         h += self.dense(t)
         h = self.conv2(h)
         h = self.act(self.gnorm2(h))
-        fmap = self.cond(fmap)
-        return h, fmap
+        return h
 
 
 class DecodeLayer(nn.Module):
     def __init__(self, in_channels, out_channels, t_dim):
         super().__init__()
         self.dense = Dense(t_dim, in_channels)
-        self.conv = nn.Conv2d(in_channels * 3, in_channels, 3, stride=1, padding=1)
+        self.conv = nn.Conv2d(in_channels * 2, in_channels, 3, stride=1, padding=1)
         self.gnorm1 = nn.GroupNorm(4, num_channels=in_channels)
         self.tconv = nn.ConvTranspose2d(in_channels, out_channels, 3, stride=2, padding=1, output_padding=1)
         self.gnorm2 = nn.GroupNorm(4, num_channels=out_channels)
         self.act = lambda x: x * torch.sigmoid(x)
 
-    def forward(self, h, t, skip, fmap):
-        h = torch.cat([h, skip, fmap], dim=1)
+    def forward(self, h, t, skip):
+        h = torch.cat([h, skip], dim=1)
         h = self.conv(h)
         h = self.act(self.gnorm1(h))
         h += self.dense(t)
@@ -119,7 +112,7 @@ class DecodeLayer(nn.Module):
 class ScoreNet(nn.Module):
     """A time-dependent score-based model built upon U-Net architecture."""
 
-    def __init__(self, marginal_prob_std, t_dim=256, cond_dim=128):
+    def __init__(self, marginal_prob_std, t_dim=256):
         """Initialize a time-dependent score-based network.
 
     Args:
@@ -135,11 +128,6 @@ class ScoreNet(nn.Module):
         # Encoding layers
         self.h_head = nn.Sequential(
             nn.Conv2d(4, 32, 1),
-            nn.GroupNorm(4, num_channels=32),
-            SwishActivation()
-        )
-        self.cond_head = nn.Sequential(
-            nn.Conv2d(cond_dim, 32, 1),
             nn.GroupNorm(4, num_channels=32),
             SwishActivation()
         )
@@ -161,22 +149,21 @@ class ScoreNet(nn.Module):
         self.act = lambda x: x * torch.sigmoid(x)
         self.marginal_prob_std = marginal_prob_std
 
-    def forward(self, x, t, fmap):
+    def forward(self, x, t):
         # Obtain the Gaussian random feature embedding for t
         # x: (B, 4, 80, 80)
         h = self.h_head(x)
         t_embed = self.act(self.embed(t))
-        fmap = self.cond_head(fmap)
         # Encoding path
-        h1, fmap1 = self.encode1(h, t_embed, fmap)
-        h2, fmap2 = self.encode2(h1, t_embed, fmap1)
-        h3, fmap3 = self.encode3(h2, t_embed, fmap2)
-        h4, fmap4 = self.encode4(h3, t_embed, fmap3)
+        h1 = self.encode1(h, t_embed)
+        h2 = self.encode2(h1, t_embed)
+        h3 = self.encode3(h2, t_embed)
+        h4 = self.encode4(h3, t_embed)
         # Decoding path
         h = self.mid(h4)
-        h = self.decode3(h, t_embed, h3, fmap3)
-        h = self.decode2(h, t_embed, h2, fmap2)
-        h = self.decode1(h, t_embed, h1, fmap1)
+        h = self.decode3(h, t_embed, h3)
+        h = self.decode2(h, t_embed, h2)
+        h = self.decode1(h, t_embed, h1)
         h = self.tail(h)
         # Normalize output
         h = h / self.marginal_prob_std(t)[:, None, None, None]

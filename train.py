@@ -29,7 +29,7 @@ if __name__ == '__main__':
         print(f'----------------Epoch {epoch}----------------')
         for batch in dataloader:
             x, map_layers = processor(batch)
-            _, loss = model(x, map_layers)
+            _, loss = model(x)
             print(iters, loss.item())
             writer.add_scalar('loss', loss, iters)
             loss.backward()

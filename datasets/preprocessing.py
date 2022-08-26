@@ -248,7 +248,7 @@ class ScoreModelProcessor:
         return batch['placing'], batch['map']
 
     def train_process(self, batch):
-        batch = self._random_rotate(batch)
+        batch = self._random_rotate(batch, rotate=False)
         batch = self._rasterize_object(batch)
         self.train_iters += 1
         return batch

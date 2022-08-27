@@ -340,7 +340,7 @@ class ScoreModelProcessor:
                 # convert to opencv coordinate
                 x = int((location[j, 0] + 40) / 0.1)
                 y = int((40 - location[j, 1]) / 0.1)
-                cv2.circle(placing[category[j] - 1], (x, y), 10, 1)
+                cv2.circle(placing[category[j] - 1], (x, y), 10, 1, thickness=-1)
 
             for type_id in [1, 2, 3]:
                 tmp = object_layers[type_id]

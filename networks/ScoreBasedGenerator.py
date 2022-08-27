@@ -34,27 +34,29 @@ class Generator(nn.Module):
         loss = torch.mean(torch.sum((score * std[:, None, None, None] + z) ** 2, dim=(1, 2, 3)))
         return score, loss
 
-    def generate(self, map_layers, num_steps=1000, snr=0.16):
+    def generate(self, num_steps=1000, snr=0.16):
         self.eval()
-        B = map_layers.shape[0]
-        device = map_layers.device
-        init_t = torch.ones(B, device=device)
-        init_x = torch.randn(B, 3, 800, 800, device=device) * self.marginal_prob_std_fn(init_t)[:, None, None, None]
+        B = 1
+        device = torch.device(0)
+        t = torch.ones(B, device=device)
+        init_x = torch.randn(B, 1, 28, 28, device=device) * self.marginal_prob_std_fn(t)[:, None, None, None]
         time_steps = np.linspace(1., self._eps, num_steps)
         step_size = time_steps[0] - time_steps[1]
         x = init_x
         with torch.no_grad():
-            for time_step in tqdm(time_steps):
-                t = torch.ones(B, device=device) * time_step
+            for time_step in tqdm(time_steps):      
+                batch_time_step = torch.ones(B, device=device) * time_step
                 # Corrector step (Langevin MCMC)
-                score, _ = self.forward(x, t=t)
-                score_norm = torch.norm(score.reshape(score.shape[0], -1), dim=-1).mean()
+                grad = self.score_net(x, batch_time_step)
+                grad_norm = torch.norm(grad.reshape(grad.shape[0], -1), dim=-1).mean()
                 noise_norm = np.sqrt(np.prod(x.shape[1:]))
-                langevin_step_size = 2 * (snr * noise_norm / score_norm) ** 2
-                x = x + langevin_step_size * score + torch.sqrt(2 * langevin_step_size) * torch.randn_like(x)
+                langevin_step_size = 2 * (snr * noise_norm / grad_norm)**2
+                x = x + langevin_step_size * grad + torch.sqrt(2 * langevin_step_size) * torch.randn_like(x)      
+
                 # Predictor step (Euler-Maruyama)
-                g = self.diffusion_coeff_fn(t)
-                x_mean = x + (g ** 2)[:, None, None, None] * score * step_size
-                x = x_mean + torch.sqrt(g ** 2 * step_size)[:, None, None, None] * torch.randn_like(x)
+                g = self.diffusion_coeff_fn(batch_time_step)
+                x_mean = x + (g**2)[:, None, None, None] * self.score_net(x, batch_time_step) * step_size
+                x = x_mean + torch.sqrt(g**2 * step_size)[:, None, None, None] * torch.randn_like(x)      
+            
         self.train()
         return x_mean

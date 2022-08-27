@@ -8,6 +8,10 @@ from datasets import NuScenesDataset, ScoreModelProcessor, collate_fn
 from networks.ScoreBasedGenerator import Generator
 import numpy as np
 import time
+from torchvision.datasets import MNIST
+from torchvision.transforms import transforms
+from tqdm import tqdm
+
 
 if __name__ == '__main__':
     device = torch.device(0)
@@ -16,30 +20,30 @@ if __name__ == '__main__':
     timestamp = time.strftime('%m-%d-%H:%M:%S')
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
-    dataset = NuScenesDataset("../../data/nuSceneProcessed/train")
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_fn)
-    processor = ScoreModelProcessor(device).train()
+    dataset = MNIST('.', train=True, transform=transforms.ToTensor(), download=True)
+    dataset = torch.utils.data.Subset(dataset, range(1))
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4)
     model = Generator()
     model.to(device)
     optimizer = Adam(model.parameters(), lr=1e-4)
-    n_epochs = 4000
-    iters = 0
+    n_epochs = 5000
 
-    for epoch in range(n_epochs):
-        print(f'----------------Epoch {epoch}----------------')
-        for batch in dataloader:
-            x, map_layers = processor(batch)
-            _, loss = model(x)
-            print(iters, loss.item())
+    iters = 0
+    pbar = tqdm(range(n_epochs))
+    for epoch in pbar:
+        total_loss = 0.
+        num_items = 0
+        for x, y in dataloader:
+            optimizer.zero_grad()
+            x = x.to(device)
+            score, loss = model(x)
+            total_loss += loss.item() * x.shape[0]
+            num_items += x.shape[0]
             writer.add_scalar('loss', loss, iters)
             loss.backward()
             optimizer.step()
             iters += 1
-
-        # if (epoch + 1) % 100 == 0:
-        #     model.cpu()
-        #     torch.save(model.state_dict(), os.path.join('./ckpts', timestamp + f'-{epoch}'))
-        #     model.to(device)
+        pbar.set_description(f'Average loss: {total_loss / num_items}')
 
     model.cpu()
     torch.save(model.state_dict(), os.path.join('./ckpts', timestamp))

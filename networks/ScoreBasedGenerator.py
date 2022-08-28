@@ -22,7 +22,7 @@ class Generator(nn.Module):
         self.diffusion_coeff_fn = lambda t: diffusion_coeff(t, self.sigma)
         self.score_net = ScoreNet(self.marginal_prob_std_fn)
         self.extractor = Extractor(26)
-        self._eps = 1e-5
+        self._eps = 1e-3
 
     def forward(self, x, t=None):
         if t is None:
@@ -39,7 +39,7 @@ class Generator(nn.Module):
         B = 1
         device = torch.device(0)
         t = torch.ones(B, device=device)
-        init_x = torch.randn(B, 1, 28, 28, device=device) * self.marginal_prob_std_fn(t)[:, None, None, None]
+        init_x = torch.randn(B, 1, 800, 800, device=device) * self.marginal_prob_std_fn(t)[:, None, None, None]
         time_steps = np.linspace(1., self._eps, num_steps)
         step_size = time_steps[0] - time_steps[1]
         x = init_x

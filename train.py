@@ -20,7 +20,11 @@ if __name__ == '__main__':
     timestamp = time.strftime('%m-%d-%H:%M:%S')
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
-    dataset = MNIST('.', train=True, transform=transforms.ToTensor(), download=True)
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize(800)
+    ])
+    dataset = MNIST('.', train=True, transform=transform, download=True)
     dataset = torch.utils.data.Subset(dataset, range(1))
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4)
     model = Generator()

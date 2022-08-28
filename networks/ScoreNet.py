@@ -95,7 +95,7 @@ class ScoreNet(nn.Module):
         self.encode2 = EncodeLayer(64, 128, t_dim)
         self.encode3 = EncodeLayer(128, 256, t_dim)
         self.mid = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, 3, stride=2, padding=1),
+            nn.ConvTranspose2d(256, 128, 3, stride=2, padding=1, output_padding=1),
             nn.GroupNorm(4, num_channels=128),
             SwishActivation()
         )

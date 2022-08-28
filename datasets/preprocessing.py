@@ -52,14 +52,14 @@ class AutoregressiveProcessor:
         for field in ['category', 'location', 'bbox', 'velocity']:
             batch[field] = pad_sequence(batch[field], batch_first=True)
             batch[field] = batch[field].to(self.device)
-        length = torch.tensor(batch['length']).to(self.device)
+        lengths = torch.tensor(batch['length']).to(self.device)
         del batch['length']
         batch['map'] = torch.stack(batch['map'], dim=0)
         for field in ['category', 'location', 'bbox', 'velocity']:
             gt[field] = torch.stack(gt[field], dim=0)
             gt[field] = gt[field].to(self.device)
-        return batch, length, gt
-
+        return batch, lengths, gt
+    
     def train_process(self, batch, window_size=1):
         if self.scheduler is not None:
             window_size = self.scheduler(self.train_iters)

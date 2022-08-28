@@ -19,6 +19,111 @@ import numpy as np
 import cv2
 
 
+def _eval_poly(y, coef):
+    coef = list(coef)
+    result = coef.pop()
+    while coef:
+        result = coef.pop() + y * result
+    return result
+
+
+def _log_modified_bessel_fn(x):
+    # compute small solution
+    y = (x / 3.75)
+    y = y * y
+    small = _eval_poly(y, [1.0, 3.5156229, 3.0899424, 1.2067492, 0.2659732, 0.360768e-1, 0.45813e-2])
+    small = small.log()
+    # compute large solution
+    y = 3.75 / x
+    large = x - 0.5 * x.log() + _eval_poly(y, [0.39894228, 0.1328592e-1, 0.225319e-2, -0.157565e-2, 0.916281e-2,
+                                              -0.2057706e-1, 0.2635537e-1, -0.1647633e-1, 0.392377e-2]).log()
+    result = torch.where(x < 3.75, small, large)
+    return result
+
+
+class WeightedNLL(nn.Module):
+    def __init__(self, weights):
+        super().__init__()
+        self.weights = dict(weights)
+        total = sum(weights.values())
+        for k in self.weights:
+            self.weights[k] = self.weights[k] / total
+        self._eps = 1e-6  # numerical stability for LogNorm
+
+    def _loss_vonmises(self, x, prob):
+        # x: (B, 1)
+        mixture = prob.params['mixture']  # (B, n_mixture)
+        cos = prob.params['cos'].squeeze()  # (B, n_mixture)
+        sin = prob.params['sin'].squeeze()  # (B, n_mixture)
+        kappa = prob.params['kappa'].squeeze()  # (B, n_mixture)
+        B, n_mixture = mixture.shape
+        x = x.expand(B, n_mixture)
+        log_prob = kappa * (torch.cos(x) * cos + torch.sin(x) * sin) - _log_modified_bessel_fn(kappa) - math.log(2 * math.pi)  # (B, n_mixture)
+        logits = torch.log_softmax(mixture, dim=-1)
+        loss = -torch.logsumexp(log_prob + logits, dim=-1)
+        return loss
+
+    def forward(self, probs, gt):
+        device = gt['category'].device
+
+        loss_category = -probs['category'].log_prob(gt['category'])
+
+        loss_location = -probs['location'].log_prob(gt['location'])
+        loss_location = torch.where(gt['category'] == 0,
+                                    torch.tensor(0., device=device),
+                                    loss_location)
+
+        loss_wl = -probs['wl'].log_prob(gt['bbox'][:, :2] + self._eps)
+        loss_wl = torch.where(gt['category'] == 0,
+                              torch.tensor(0., device=device),
+                              loss_wl)
+        loss_theta = self._loss_vonmises(gt['bbox'][:, 2:], probs['theta'])
+        loss_theta = torch.where(gt['category'] == 0,
+                                 torch.tensor(0., device=device),
+                                 loss_theta)
+
+        loss_s = -probs['s'].log_prob(gt['velocity'][:, :1] + self._eps)
+        loss_s = torch.where(gt['velocity'][:, 0] == 0,
+                             torch.tensor(0., device=device),
+                             loss_s)
+        loss_s = torch.where(gt['category'] == 0,
+                             torch.tensor(0., device=device),
+                             loss_s)
+        loss_omega = self._loss_vonmises(gt['velocity'][:, 1:], probs['omega'])
+        loss_omega = torch.where(gt['velocity'][:, 0] == 0,
+                                 torch.tensor(0., device=device),
+                                 loss_omega)
+        loss_omega = torch.where(gt['category'] == 0,
+                                 torch.tensor(0., device=device),
+                                 loss_omega)
+        loss_moving = torch.where(gt['velocity'][:, 0] == 0,
+                                  -probs['moving'].log_prob(torch.tensor(0., device=device)).squeeze(),
+                                  -probs['moving'].log_prob(torch.tensor(1., device=device)).squeeze())
+        loss_moving = torch.where(gt['category'] == 0,
+                                  torch.tensor(0., device=device),
+                                  loss_moving)
+
+        loss = loss_category * self.weights['category'] + \
+               loss_location * self.weights['location'] + \
+               loss_wl * self.weights['wl'] + \
+               loss_theta * self.weights['theta'] + \
+               loss_moving * self.weights['moving'] + \
+               loss_s * self.weights['s'] + \
+               loss_omega * self.weights['omega']
+
+        components = {
+            'all': loss,
+            'category': loss_category * self.weights['category'],
+            'location': loss_location * self.weights['location'],
+            'wl': loss_wl * self.weights['wl'],
+            'theta': loss_theta * self.weights['theta'],
+            'moving': loss_moving * self.weights['moving'],
+            's': loss_s * self.weights['s'],
+            'omega': loss_omega * self.weights['omega']
+        }
+        return components
+
+
 class Decoder(nn.Module):
     def __init__(self, d_model=768, n_mixture=8):
         super(Decoder, self).__init__()
@@ -66,7 +171,7 @@ class Decoder(nn.Module):
 
 
 class AutoregressiveTransformer(nn.Module):
-    def __init__(self, loss_fn=None, lr=None, scheduler=None, logger=None):
+    def __init__(self):
         super().__init__()
         # Build a transformer encoder
         self.transformer_encoder = nn.Transformer(
@@ -81,7 +186,7 @@ class AutoregressiveTransformer(nn.Module):
         self.q = nn.Parameter(torch.randn(self.d_model))
 
         # extract features from maps
-        self.feature_extractor = Extractor(25)
+        self.feature_extractor = Extractor(26)
 
         # Embedding matix for each category
         self.category_embedding = nn.Embedding(4, 64)
@@ -104,13 +209,15 @@ class AutoregressiveTransformer(nn.Module):
         self.decoder_bicyclist = Decoder()
         self.decoder_vehicle = Decoder()
 
-        self.register_buffer('iters', torch.tensor(0))
-        self.loss_fn = loss_fn
-        if lr is not None:
-            self.optimizer = Adam(self.parameters(), lr=lr)
-        if scheduler is not None:
-            self.scheduler = LambdaLR(self.optimizer, scheduler)
-        self.logger = logger
+        self.loss_fn = WeightedNLL(weights={
+                'category': 0.1,
+                'location': 1.,
+                'wl': 0.4,
+                'theta': 0.4,
+                'moving': 0.2,
+                's': 0.2,
+                'omega': 0.2
+        })
 
     def _discrete_loc(self, loc):
         row = (40 - loc[..., 1]).long()
@@ -404,53 +511,17 @@ class AutoregressiveTransformer(nn.Module):
         return loss, pred
 
     def forward(self, samples, lengths, gt):
+        L = lengths.max().item()
+        for field in ['category', 'location', 'bbox', 'velocity']:
+            samples[field] = samples[field][:, :L]
         samples['location'] = self._discrete_loc(samples['location'])
         gt['location'] = self._discrete_loc(gt['location'])
-        B, L, *_ = samples["category"].shape
 
-        fields = ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']
-        all_loss = {k: torch.zeros(B, device=lengths.device) for k in fields}
-        window_size = gt['category'].size(1)
-        for step in range(window_size):
-            # keep the first step objects
-            self.optimizer.zero_grad()
-            gt_step = {}
-            for field in ['category', 'location', 'bbox', 'velocity']:
-                gt_step[field] = gt[field][:, step]
-            loss, pred = self._forward_step(samples, lengths, gt_step)  # (B, )
-            for k in fields:
-                all_loss[k] += loss[k].detach()
-            loss['all'].mean().backward()
-            torch.nn.utils.clip_grad_norm_(self.parameters(), 1)
-            self.optimizer.step()
-            self.scheduler.step()
-
-            new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
-            pred['bbox'] = torch.cat([pred['wl'], pred['theta']], dim=-1)
-            pred['velocity'] = torch.cat([pred['s'], pred['omega']], dim=-1) * pred['moving']
-            object_layers = self._rasterize(samples['map'][:, 7:], pred['category'], pred['location'], pred['bbox'], pred['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :7], object_layers], dim=1)
-            pred['location'] = self._discrete_loc(pred['location'])
-            for i in range(B):
-                length = lengths[i].item()
-                new_samples_one = {}
-                for field in ['category', 'location', 'bbox', 'velocity']:
-                    new_samples_one[field] = torch.cat([samples[field][i, :length], pred[field][i].unsqueeze(0)], dim=0)
-                idx = list(range(length + 1))
-                idx.sort(key=lambda x: new_samples_one['location'][x])
-                for field in ['category', 'location', 'bbox', 'velocity']:
-                    new_samples_one[field] = new_samples_one[field][idx]
-                    new_samples[field].append(new_samples_one[field])
-            for field in ['category', 'location', 'bbox', 'velocity']:
-                new_samples[field] = pad_sequence(new_samples[field], batch_first=True)
-            lengths = lengths + 1
-            samples = new_samples
-
-            self.iters += 1
-
-        for k in fields:
-            all_loss[k] = all_loss[k].mean() / window_size
-        return all_loss
+        gt_step = {}
+        for field in ['category', 'location', 'bbox', 'velocity']:
+            gt_step[field] = gt[field][:, 0]
+        loss, pred = self._forward_step(samples, lengths, gt_step)  # (B, )
+        return loss
 
     def generate(self, samples, lengths, condition, n_sample):
         # Unpack the samples

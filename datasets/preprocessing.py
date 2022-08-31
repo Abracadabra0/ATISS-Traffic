@@ -5,7 +5,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torchvision.transforms import functional as F
 
 
-class AutoregressiveProcessor:
+class AutoregressivePreprocessor:
     """
     input_layers:
         drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation

@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
-from datasets import NuScenesDataset, AutoregressiveProcessor, collate_fn
+from datasets import NuScenesDataset, AutoregressivePreprocessor, collate_fn
 from networks.autoregressive_transformer import AutoregressiveTransformer
 import numpy as np
 from losses.nll import WeightedNLL, lr_func
@@ -22,7 +22,7 @@ if __name__ == '__main__':
     os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
     dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
     dataloader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=4, collate_fn=collate_fn)
-    processor = AutoregressiveProcessor('cpu').train()
+    processor = AutoregressivePreprocessor('cpu').train()
 
     model = AutoregressiveTransformer()
     model = DataParallel(model).to(device)

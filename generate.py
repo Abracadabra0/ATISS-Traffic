@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import torch
-from datasets import NuScenesDataset, AutoregressiveProcessor, collate_fn
+from datasets import NuScenesDataset, AutoregressivePreprocessor, collate_fn
 from torch.utils.data import DataLoader
 from networks.autoregressive_transformer import AutoregressiveTransformer
 from collections import OrderedDict
@@ -24,7 +24,7 @@ torch.manual_seed(0)
 plt.ion()
 dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/test")
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
-processor = AutoregressiveProcessor('cpu').test()
+processor = AutoregressivePreprocessor('cpu').test()
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 model = AutoregressiveTransformer()

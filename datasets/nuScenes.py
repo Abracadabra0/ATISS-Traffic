@@ -158,34 +158,13 @@ class NuScenesDataset(Dataset):
                 lane_pts = np.array(lane_pts)
 
                 # get road_segment orientation
-                bg = 1 - road_segment
                 road_segment = np.where(lane == 0, road_segment, 0)
-                dst_map = cv2.distanceTransform(road_segment + bg, cv2.DIST_L2, cv2.DIST_MASK_3) * road_segment
-                grad_x = cv2.Sobel(dst_map, -1, 1, 0, ksize=7)
-                grad_y = cv2.Sobel(dst_map, -1, 0, 1, ksize=7)
-                grad = np.stack([grad_x, grad_y], axis=0)  # (2, 320, 320)
-                grad_norm = np.linalg.norm(grad, axis=0)
-                grad = np.where(grad_norm > 0, grad / grad_norm, grad)
                 for row in range(road_segment.shape[0]):
                     for col in range(road_segment.shape[1]):
-                        if grad_norm[row, col] > 0:
+                        if road_segment[row, col] > 0:
                             dst = np.linalg.norm(lane_pts - np.array([row, col]), axis=1)
                             closest = lane_pts[dst.argmin()]
-                            target = orientation[closest[0], closest[1]]
-                            target = np.array([np.cos(target), np.sin(target)])
-                            x, y = grad[:, row, col]
-                            possible = np.array([
-                                [x, y],
-                                [-y, x],
-                                [-x, -y],
-                                [y, -x]
-                            ])
-                            inner = np.dot(possible, target)
-                            result = possible[inner.argmax()]
-                            angle = np.arcsin(result[1])
-                            if result[0] < 0:
-                                angle = np.sign(angle) * np.pi - angle
-                            orientation[row, col] = angle
+                            orientation[row, col] = orientation[closest[0], closest[1]]
                 lane = lane + road_segment
 
                 map_layers = np.stack([
@@ -218,6 +197,13 @@ class NuScenesDataset(Dataset):
                 bbox = []
                 velocity = []
                 for box in boxes:
+                    # filter out vehicles outside roads
+                    if cls.category_mapping[box.name] == cls.VEHICLE:
+                        x, y = box.center[0], box.center[1]
+                        row = int((axes_limit - y) / resolution)
+                        col = int((x + axes_limit) / resolution)
+                        if lane[row, col] == 0:
+                            continue
                     box_to_ego = get_homogeneous_matrix(box.center, box.rotation_matrix)
                     # calculates vehicle heading direction
                     _, heading = cartesian_to_polar(box_to_ego[:2, 0])

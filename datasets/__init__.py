@@ -1,3 +1,3 @@
 from .nuScenes import NuScenesDataset
-from .preprocessing import AutoregressiveProcessor, ScoreModelProcessor
+from .preprocessing import AutoregressivePreprocessor, ScoreModelProcessor
 from .utils import collate_fn

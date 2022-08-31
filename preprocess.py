@@ -80,7 +80,6 @@ def preprocess_scene(i_scene):
 
         # create directory
         os.makedirs(sample_data['token'], exist_ok=True)
-        os.chdir(sample_data['token'])
 
         # get annotated map
         nusc_map = NuScenesMap(dataroot=dataroot, map_name=map_name)
@@ -203,7 +202,7 @@ def preprocess_scene(i_scene):
 
         # convert to torch.tensor and save it
         map_layers = torch.tensor(map_layers.copy(), dtype=torch.float32)
-        torch.save(map_layers, 'map')
+        torch.save(map_layers, os.path.join(sample_data['token'], 'map'))
 
         # retrieve all objects that fall inside the boundaries
         _, boxes, _ = nusc.get_sample_data(sample['data']['LIDAR_TOP'], box_vis_level=BoxVisibility.ALL,
@@ -241,12 +240,11 @@ def preprocess_scene(i_scene):
         bbox.append(np.zeros(3))
         velocity.append(np.zeros(2))
         # convert to tensor and save
-        torch.save(torch.tensor(np.array(category), dtype=torch.int64), 'category')
-        torch.save(torch.tensor(np.array(location), dtype=torch.float32), 'location')
-        torch.save(torch.tensor(np.array(bbox), dtype=torch.float32), 'bbox')
-        torch.save(torch.tensor(np.array(velocity), dtype=torch.float32), 'velocity')
+        torch.save(torch.tensor(np.array(category), dtype=torch.int64), os.path.join(sample_data['token'], 'category'))
+        torch.save(torch.tensor(np.array(location), dtype=torch.float32), os.path.join(sample_data['token'], 'location'))
+        torch.save(torch.tensor(np.array(bbox), dtype=torch.float32), os.path.join(sample_data['token'], 'bbox'))
+        torch.save(torch.tensor(np.array(velocity), dtype=torch.float32), os.path.join(sample_data['token'], 'velocity'))
 
-        os.chdir('..')
         sample_token = sample['next']
     return i_scene
 

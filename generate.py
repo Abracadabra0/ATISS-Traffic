@@ -1,9 +1,10 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import torch
-from datasets import NuScenesDataset, BatchProcessor, collate_fn
+from datasets import NuScenesDataset, AutoregressiveProcessor, collate_fn
 from torch.utils.data import DataLoader
 from networks.autoregressive_transformer import AutoregressiveTransformer
+from collections import OrderedDict
 
 
 def to_numpy(data: dict):
@@ -21,13 +22,18 @@ def to_numpy(data: dict):
 np.random.seed(0)
 torch.manual_seed(0)
 plt.ion()
-dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuScene-processed/test")
+dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/test")
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
-processor = BatchProcessor('cpu').test()
+processor = AutoregressiveProcessor('cpu').test()
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 model = AutoregressiveTransformer()
-model.load_state_dict(torch.load('./ckpts/08-22-01:39:37'))
+state_dict = torch.load('/shared/perception/personals/yefanlin/project/ATISS-Traffic/ckpts/08-28-23:34:58/final')
+new_state_dict = OrderedDict()
+for k, v in state_dict.items():
+    name = k[7:] # remove module.
+    new_state_dict[name] = v
+model.load_state_dict(new_state_dict)
 
 for i_data, batch in enumerate(dataloader):
     batch, length, _ = processor(batch, n_keep=0)
@@ -38,7 +44,7 @@ for i_data, batch in enumerate(dataloader):
 
     cnt = 0
     while True:
-        preds, probs, batch, length = model.generate(batch, length, condition, n_sample=5)
+        preds, probs, batch, length = model.generate(batch, length, condition, n_sample=10)
         cnt += 1
         print(cnt)
         to_numpy(preds)
@@ -50,7 +56,7 @@ for i_data, batch in enumerate(dataloader):
     drivable_area = batch['map'][0, 0]
     ped_crossing = batch['map'][0, 1]
     walkway = batch['map'][0, 2]
-    lane_divider = batch['map'][0, 4]
+    lane_divider = batch['map'][0, 5]
     map_layers = np.stack([
         drivable_area + lane_divider,
         ped_crossing,

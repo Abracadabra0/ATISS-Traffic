@@ -20,20 +20,19 @@ if __name__ == '__main__':
     timestamp = time.strftime('%m-%d-%H:%M:%S')
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
-    dataset = NuScenesDataset("/projects/perception/datasets/nuScenesProcessed/train")
+    dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
     dataloader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=4, collate_fn=collate_fn)
     processor = AutoregressiveProcessor('cpu').train()
 
     model = AutoregressiveTransformer()
     model = DataParallel(model).to(device)
 
-    optimizer = Adam(model.parameters(), lr=2e-4)
-    scheduler = LambdaLR(optimizer, lr_func(8000))
+    optimizer = Adam(model.parameters(), lr=1e-3)
+    scheduler = LambdaLR(optimizer, lr_func(5000))
 
     n_epochs = 20
     iters = 0
     print("Running on %d GPUs " % torch.cuda.device_count())
-    pbar = tqdm(total=n_epochs * len(dataset))
 
     for epoch in range(n_epochs):
         for batch in dataloader:
@@ -41,17 +40,18 @@ if __name__ == '__main__':
             loss = model(batch, lengths, gt)
             for k, v in loss.items():
                 writer.add_scalar(f'loss/{k}', loss[k].mean(), iters)
+            print(f"{iters}: {loss['all'].mean().item()}")
             optimizer.zero_grad()
             loss['all'].mean().backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
             optimizer.step()
             scheduler.step()
             iters += 1
-            pbar.update(lengths.shape[0])
-            pbar.set_description(f"loss: {loss['all'].mean().item()}")
 
-        torch.save(model.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))
-        torch.save(optimizer.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'optimizer-{epoch}'))
-        torch.save(scheduler.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'scheduler-{epoch}'))
+        if (epoch + 1) % 2 == 0:
+            torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))
+            torch.save(optimizer.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'optimizer-{epoch}'))
+            torch.save(scheduler.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'scheduler-{epoch}'))
 
     model.cpu()
-    torch.save(model.state_dict(), os.path.join(f'./ckpts/{timestamp}', 'final'))
+    torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', 'final'))

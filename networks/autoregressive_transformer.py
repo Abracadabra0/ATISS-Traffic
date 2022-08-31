@@ -307,24 +307,26 @@ class AutoregressiveTransformer(nn.Module):
         B = output_f.size(0)
         f_in = torch.cat([output_f[:, None, :].expand(B, 6400, self.d_model), map_f], dim=-1)
         f_out = decoder(f_in, 'location')  # (B, 6400)
-        prob_location = Categorical(logits=f_out)
         location_f = []
         if n_sample == 1:
+            prob_location = Categorical(logits=f_out)
             pred_location = prob_location.sample()  # (B, )
             pred_location_smoothed = self._smooth_loc(pred_location)
             # teacher forcing
             for location_one, map_f_one in zip(gt['location'], map_f):
                 location_f.append(map_f_one[location_one])
         else:
-            for _ in range(10):
-                pred_location = self._max_prob_sample(prob_location, n_sample)
+            prob_location = Categorical(logits=f_out)
+            for _ in range(50):
+                pred_location = self._max_prob_sample(prob_location, 5)
                 pred_location_smoothed = self._smooth_loc(pred_location)
                 # reject overlapping location
                 row = int((40 - pred_location_smoothed.squeeze().numpy()[1]) / 0.25)
                 col = int((pred_location_smoothed.squeeze().numpy()[0] + 40) / 0.25)
                 if prev_occupancy[row, col]:
                     continue
-                break
+                # reject previous location
+
             for location_one, map_f_one in zip(pred_location, map_f):
                 location_f.append(map_f_one[location_one])
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
@@ -341,9 +343,9 @@ class AutoregressiveTransformer(nn.Module):
             pred_wl = prob_wl.sample()
             pred_theta = prob_theta.sample()
         else:
-            for _ in range(10):
+            for _ in range(50):
                 pred_wl = self._max_prob_sample(prob_wl, n_sample)
-                pred_theta = self._max_prob_sample(prob_theta, n_sample)
+                pred_theta = self._max_prob_sample(prob_theta, 20)
                 # reject overlapping bounding box
                 location = pred_location_smoothed.squeeze().numpy()
                 w, l = pred_wl.squeeze().numpy()
@@ -597,7 +599,8 @@ class AutoregressiveTransformer(nn.Module):
                 decoder = self.decoder_bicyclist
             else:
                 decoder = self.decoder_vehicle
-            prev_occupancy = maps[0, 6].numpy()
+            prev_occupancy = maps[0, 8].numpy()
+
             probs, preds = self._decode(decoder, output_f, map_f, 
                                         n_sample=n_sample,
                                         prev_occupancy=prev_occupancy)
@@ -607,12 +610,12 @@ class AutoregressiveTransformer(nn.Module):
             new_samples = {field: [] for field in ['category', 'location', 'bbox', 'velocity']}
             preds['bbox'] = torch.cat([preds['wl'], preds['theta']], dim=-1)
             preds['velocity'] = torch.cat([preds['s'], preds['omega']], dim=-1) * preds['moving']
-            object_layers = self._rasterize(samples['map'][:, 7:],
+            object_layers = self._rasterize(samples['map'][:, 8:],
                                         preds['category'],
                                         preds['location'],
                                         preds['bbox'],
                                         preds['velocity'])
-            new_samples['map'] = torch.cat([samples['map'][:, :7], object_layers], dim=1)
+            new_samples['map'] = torch.cat([samples['map'][:, :8], object_layers], dim=1)
             for i in range(B):
                 length = lengths[i].item()
                 new_samples_one = {}

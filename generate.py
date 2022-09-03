@@ -19,23 +19,21 @@ def to_numpy(data: dict):
             to_numpy(data[k])
 
 
-np.random.seed(0)
-torch.manual_seed(0)
 plt.ion()
-dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/test")
+dataset = NuScenesDataset("/projects/perception/datasets/nuScenesProcessed/test")
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
 processor = AutoregressivePreprocessor('cpu').test()
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 model = AutoregressiveTransformer()
-state_dict = torch.load('/shared/perception/personals/yefanlin/project/ATISS-Traffic/ckpts/08-28-23:34:58/final')
-new_state_dict = OrderedDict()
-for k, v in state_dict.items():
-    name = k[7:] # remove module.
-    new_state_dict[name] = v
-model.load_state_dict(new_state_dict)
+state_dict = torch.load('/projects/perception/personals/yefanlin/project/ATISS-Traffic/ckpts/09-01-20:50:19/final')
+model.load_state_dict(state_dict)
+
+dot = []
 
 for i_data, batch in enumerate(dataloader):
+    if i_data >= 1000:
+        break
     batch, length, _ = processor(batch, n_keep=0)
 
     condition = {
@@ -44,7 +42,7 @@ for i_data, batch in enumerate(dataloader):
 
     cnt = 0
     while True:
-        preds, probs, batch, length = model.generate(batch, length, condition, n_sample=10)
+        preds, probs, batch, length = model.generate(batch, length, condition, n_sample=5)
         cnt += 1
         print(cnt)
         to_numpy(preds)
@@ -57,6 +55,7 @@ for i_data, batch in enumerate(dataloader):
     ped_crossing = batch['map'][0, 1]
     walkway = batch['map'][0, 2]
     lane_divider = batch['map'][0, 5]
+    orientation = batch['map'][0, 6:8]
     map_layers = np.stack([
         drivable_area + lane_divider,
         ped_crossing,
@@ -85,8 +84,18 @@ for i_data, batch in enumerate(dataloader):
                                  [-np.sin(omega), np.cos(omega)]])
             velocity = np.dot(np.array([speed, 0]), rotation)
             ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
+            if batch['category'][0, i] == 3:
+                row = int((40 - loc[1]) / 0.25)
+                col = int((loc[0] + 40) / 0.25)
+                v1 = np.array([np.sin(theta), np.cos(theta)])
+                v2 = orientation[:, row, col]
+                dot.append(np.dot(v1, v2))
+                
     ax.set_xlim([-axes_limit, axes_limit])
     ax.set_ylim([-axes_limit, axes_limit])
 
     fig.savefig(f"./result/test-{i_data}.png")
     plt.close(fig)
+
+plt.hist(dot, bins=20)
+plt.savefig('hist.png')

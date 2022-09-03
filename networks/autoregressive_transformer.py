@@ -318,7 +318,7 @@ class AutoregressiveTransformer(nn.Module):
         else:
             prob_location = Categorical(logits=f_out)
             for _ in range(50):
-                pred_location = self._max_prob_sample(prob_location, 5)
+                pred_location = self._max_prob_sample(prob_location, n_sample)
                 pred_location_smoothed = self._smooth_loc(pred_location)
                 # reject overlapping location
                 row = int((40 - pred_location_smoothed.squeeze().numpy()[1]) / 0.25)
@@ -345,7 +345,7 @@ class AutoregressiveTransformer(nn.Module):
         else:
             for _ in range(50):
                 pred_wl = self._max_prob_sample(prob_wl, n_sample)
-                pred_theta = self._max_prob_sample(prob_theta, 20)
+                pred_theta = self._max_prob_sample(prob_theta, n_sample * 2)
                 # reject overlapping bounding box
                 location = pred_location_smoothed.squeeze().numpy()
                 w, l = pred_wl.squeeze().numpy()

@@ -36,7 +36,7 @@ def _log_modified_bessel_fn(x):
     # compute large solution
     y = 3.75 / x
     large = x - 0.5 * x.log() + _eval_poly(y, [0.39894228, 0.1328592e-1, 0.225319e-2, -0.157565e-2, 0.916281e-2,
-                                              -0.2057706e-1, 0.2635537e-1, -0.1647633e-1, 0.392377e-2]).log()
+                                               -0.2057706e-1, 0.2635537e-1, -0.1647633e-1, 0.392377e-2]).log()
     result = torch.where(x < 3.75, small, large)
     return result
 
@@ -58,7 +58,8 @@ class WeightedNLL(nn.Module):
         kappa = prob.params['kappa'].squeeze()  # (B, n_mixture)
         B, n_mixture = mixture.shape
         x = x.expand(B, n_mixture)
-        log_prob = kappa * (torch.cos(x) * cos + torch.sin(x) * sin) - _log_modified_bessel_fn(kappa) - math.log(2 * math.pi)  # (B, n_mixture)
+        log_prob = kappa * (torch.cos(x) * cos + torch.sin(x) * sin) - _log_modified_bessel_fn(kappa) - math.log(
+            2 * math.pi)  # (B, n_mixture)
         logits = torch.log_softmax(mixture, dim=-1)
         loss = -torch.logsumexp(log_prob + logits, dim=-1)
         return loss
@@ -146,11 +147,11 @@ class Decoder(nn.Module):
 
     def forward(self, f, field):
         if field == 'location':
-            # f: (B, 6400, d_model + 128)
+            # f: (B, 320 * 320, d_model + 128)
             B, _, n_feature = f.shape
-            f = f.permute([0, 2, 1]).reshape(B, n_feature, 80, 80).contiguous()  # (B, n_feature, 80, 80)
-            out = self.location(f)  # (B, 1, 80, 80)
-            out = out.flatten(1)  # (B, 6400)
+            f = f.permute([0, 2, 1]).reshape(B, n_feature, 320, 320).contiguous()  # (B, n_feature, 320, 320)
+            out = self.location(f)  # (B, 1, 320, 320)
+            out = out.flatten(1)  # (B, 320 * 320)
             return out
         if field == 'wl':
             # f: (B, 128)
@@ -210,27 +211,27 @@ class AutoregressiveTransformer(nn.Module):
         self.decoder_vehicle = Decoder()
 
         self.loss_fn = WeightedNLL(weights={
-                'category': 0.1,
-                'location': 1.,
-                'wl': 0.4,
-                'theta': 0.4,
-                'moving': 0.2,
-                's': 0.2,
-                'omega': 0.2
+            'category': 0.1,
+            'location': 1.,
+            'wl': 0.4,
+            'theta': 0.4,
+            'moving': 0.2,
+            's': 0.2,
+            'omega': 0.2
         })
 
     def _discrete_loc(self, loc):
-        row = (40 - loc[..., 1]).long()
-        col = (loc[..., 0] + 40).long()
-        return row * 80 + col
+        row = ((40 - loc[..., 1]) / 0.25).long()
+        col = ((loc[..., 0] + 40) / 0.25).long()
+        return row * 320 + col
 
     def _smooth_loc(self, loc):
-        row = torch.div(loc, 80, rounding_mode='trunc')
-        col = loc - row * 80
-        x = col - 40
-        x = x + torch.rand(*x.shape).to(x.device)
-        y = 40 - row
-        y = y + torch.rand(*y.shape).to(y.device)
+        row = torch.div(loc, 320, rounding_mode='trunc')
+        col = loc - row * 320
+        x = col * 0.25 - 40
+        x = x + torch.rand(*x.shape).to(x.device) * 0.25
+        y = 40 - row * 0.25
+        y = y + torch.rand(*y.shape).to(y.device) * 0.25
         return torch.stack([x, y], dim=-1)
 
     def _mix_lognormal(self, f, event_shape):
@@ -291,7 +292,6 @@ class AutoregressiveTransformer(nn.Module):
                        'kappa': kappa}
         return prob
 
-
     def _max_prob_sample(self, prob, n_sample):
         assert prob.batch_shape[0] == 1
         sample = prob.sample(torch.tensor([n_sample]))
@@ -305,8 +305,8 @@ class AutoregressiveTransformer(nn.Module):
                 n_sample=1,
                 prev_occupancy=None):
         B = output_f.size(0)
-        f_in = torch.cat([output_f[:, None, :].expand(B, 6400, self.d_model), map_f], dim=-1)
-        f_out = decoder(f_in, 'location')  # (B, 6400)
+        f_in = torch.cat([output_f[:, None, :].expand(B, 320 * 320, self.d_model), map_f], dim=-1)
+        f_out = decoder(f_in, 'location')  # (B, 320 * 320)
         location_f = []
         if n_sample == 1:
             prob_location = Categorical(logits=f_out)
@@ -325,18 +325,14 @@ class AutoregressiveTransformer(nn.Module):
                 col = int((pred_location_smoothed.squeeze().numpy()[0] + 40) / 0.25)
                 if prev_occupancy[row, col]:
                     continue
-                # reject previous location
-
+                break
             for location_one, map_f_one in zip(pred_location, map_f):
                 location_f.append(map_f_one[location_one])
         location_f = torch.stack(location_f, dim=0)  # (B, 128)
 
-        f_in = torch.cat([
-            location_f
-        ], dim=-1)  # (B, 128)
+        f_in = location_f  # (B, 128)
         f_out = decoder(f_in, 'wl')
-        prob_wl = self._mix_lognormal(f=f_out,
-                                      event_shape=2)
+        prob_wl = self._mix_lognormal(f=f_out, event_shape=2)
         f_out = decoder(f_in, 'theta')
         prob_theta = self._mix_vonmises(f=f_out)
         if n_sample == 1:
@@ -378,7 +374,8 @@ class AutoregressiveTransformer(nn.Module):
         f_out = decoder(f_in, 's')
         prob_s = self._mix_lognormal(f=f_out, event_shape=1)
         f_out = decoder(f_in, 'omega')
-        prob_omega = self._mix_vonmises_delta(f=f_out, sin_theta=prob_theta.params['sin'], cos_theta=prob_theta.params['cos'])
+        prob_omega = self._mix_vonmises_delta(f=f_out, sin_theta=prob_theta.params['sin'],
+                                              cos_theta=prob_theta.params['cos'])
         if n_sample == 1:
             pred_moving = prob_moving.sample()
             pred_s = prob_s.sample()
@@ -453,8 +450,8 @@ class AutoregressiveTransformer(nn.Module):
         maps = samples["map"]
 
         # extract features from map
-        map_f = self.feature_extractor(maps)  # (B, 128, 80, 80)
-        map_f = map_f.flatten(2, 3).permute([0, 2, 1]).contiguous()  # (B, 6400, 128)
+        map_f = self.feature_extractor(maps)  # (B, 128, 320, 320)
+        map_f = map_f.flatten(2, 3).permute([0, 2, 1]).contiguous()  # (B, 320 * 320, 128)
 
         # embed category
         category_f = self.category_embedding(category)
@@ -538,8 +535,8 @@ class AutoregressiveTransformer(nn.Module):
             B, L, *_ = category.shape
 
             # extract features from map
-            map_f = self.feature_extractor(maps)  # (B, 128, 100, 100)
-            map_f = map_f.flatten(2, 3).permute([0, 2, 1]).contiguous()  # (B, 10000, 128)
+            map_f = self.feature_extractor(maps)  # (B, 128, 320, 320)
+            map_f = map_f.flatten(2, 3).permute([0, 2, 1]).contiguous()  # (B, 320 * 320, 128)
 
             # embed category
             category_f = self.category_embedding(category)
@@ -601,7 +598,7 @@ class AutoregressiveTransformer(nn.Module):
                 decoder = self.decoder_vehicle
             prev_occupancy = maps[0, 8].numpy()
 
-            probs, preds = self._decode(decoder, output_f, map_f, 
+            probs, preds = self._decode(decoder, output_f, map_f,
                                         n_sample=n_sample,
                                         prev_occupancy=prev_occupancy)
             probs['category'] = prob_category
@@ -611,16 +608,17 @@ class AutoregressiveTransformer(nn.Module):
             preds['bbox'] = torch.cat([preds['wl'], preds['theta']], dim=-1)
             preds['velocity'] = torch.cat([preds['s'], preds['omega']], dim=-1) * preds['moving']
             object_layers = self._rasterize(samples['map'][:, 8:],
-                                        preds['category'],
-                                        preds['location'],
-                                        preds['bbox'],
-                                        preds['velocity'])
+                                            preds['category'],
+                                            preds['location'],
+                                            preds['bbox'],
+                                            preds['velocity'])
             new_samples['map'] = torch.cat([samples['map'][:, :8], object_layers], dim=1)
             for i in range(B):
                 length = lengths[i].item()
                 new_samples_one = {}
                 for field in ['category', 'location', 'bbox', 'velocity']:
-                    new_samples_one[field] = torch.cat([samples[field][i, :length], preds[field][i].unsqueeze(0)], dim=0)
+                    new_samples_one[field] = torch.cat([samples[field][i, :length], preds[field][i].unsqueeze(0)],
+                                                       dim=0)
                 idx = list(range(length + 1))
                 idx.sort(key=lambda x: (-new_samples_one['location'][x, 1], new_samples_one['location'][x, 0]))
                 for field in ['category', 'location', 'bbox', 'velocity']:

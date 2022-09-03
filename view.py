@@ -1,8 +1,9 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import torch
-from datasets import NuScenesDataset, collate_fn, AutoregressiveProcessor
+from datasets import NuScenesDataset, collate_fn, AutoregressivePreprocessor
 from torch.utils.data import DataLoader
+
 
 def to_numpy(data: dict):
     for k in data:
@@ -16,7 +17,7 @@ def to_numpy(data: dict):
             to_numpy(data[k])
 
 
-dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/test")
+dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuSceneProcessed/train")
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
 processor = AutoregressiveProcessor('cpu').test()
 axes_limit = 40
@@ -27,9 +28,9 @@ for idx, batch in enumerate(dataloader):
     batch, length, _ = processor(batch, n_keep=-1)
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    sin = (batch['map'][0, 6] + 1) / 2
-    cos = (batch['map'][0, 7] + 1) / 2
+    lane_mask = batch['map'][0, 8]
 
+    sin = (batch['map'][0, 6] + 1) / 2
     map_layers = torch.stack([sin] * 3).permute(1, 2, 0)
     ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
     for i in range(length.item()):
@@ -59,6 +60,7 @@ for idx, batch in enumerate(dataloader):
     fig.savefig(f'./result/{idx}(sin).png')
     plt.close(fig)
 
+    cos = (batch['map'][0, 7] + 1) / 2
     map_layers = torch.stack([cos] * 3).permute(1, 2, 0)
     ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
     for i in range(length.item()):

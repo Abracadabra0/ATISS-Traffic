@@ -49,11 +49,8 @@ class Extractor(nn.Module):
         )
 
         self.small = nn.Sequential(
-            nn.Conv2d(in_channels=input_channels + 64, out_channels=128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-
+            nn.Conv2d(in_channels=input_channels + 64, out_channels=128, kernel_size=(3, 3), padding=(1, 1)),
             ResBlock(128, 3),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-
             ResBlock(128, 1)
         )
 
@@ -61,5 +58,5 @@ class Extractor(nn.Module):
         # x: (B, input_channels, 320, 320)
         large_f = self.large(x)  # (B, 64, 320, 320)
         x = torch.cat([x, large_f], dim=1)  # (B, input_channels + 64, 320, 320)
-        f = self.small(x)  # (B, 128, 80, 80)
+        f = self.small(x)  # (B, 128, 320, 320)
         return f

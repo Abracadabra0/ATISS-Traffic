@@ -11,7 +11,6 @@ from networks.autoregressive_transformer import AutoregressiveTransformer
 import numpy as np
 from losses.nll import WeightedNLL, lr_func
 import time
-from tqdm import tqdm
 
 if __name__ == '__main__':
     device = torch.device(0)
@@ -21,14 +20,14 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
     dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=4, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
     processor = AutoregressivePreprocessor('cpu').train()
 
     model = AutoregressiveTransformer()
     model = DataParallel(model).to(device)
 
     optimizer = Adam(model.parameters(), lr=1e-3)
-    scheduler = LambdaLR(optimizer, lr_func(5000))
+    scheduler = LambdaLR(optimizer, lr_func(4000))
 
     n_epochs = 20
     iters = 0

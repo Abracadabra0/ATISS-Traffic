@@ -26,7 +26,7 @@ processor = AutoregressivePreprocessor('cpu').test()
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 model = AutoregressiveTransformer()
-state_dict = torch.load('/projects/perception/personals/yefanlin/project/ATISS-Traffic/ckpts/09-01-20:50:19/final')
+state_dict = torch.load('/projects/perception/personals/yefanlin/project/ATISS-Traffic/ckpts/09-03-01:48:19/final')
 model.load_state_dict(state_dict)
 
 dot = []

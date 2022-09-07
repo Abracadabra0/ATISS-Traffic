@@ -200,18 +200,7 @@ class AutoregressivePreprocessor:
         return batch
 
 
-class ScoreModelProcessor:
-    """
-    input_layers:
-        drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation
-        7 layers in total
-
-    output_layers:
-        drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation(sin), orientation(cos),
-        (occupancy, orientation(sin), orientation(cos), speed, heading(sin), heading(cos)) * 3
-        26 layers in total
-    """
-
+class DiffusionModelPreprocessor:
     def __init__(self, device):
         self.device = device
         self.axes_limit = 40
@@ -233,29 +222,44 @@ class ScoreModelProcessor:
         batch['map'] = batch['map'].to(self.device)
         for field in batch:
             batch[field] = list(batch[field])
+        # remove padding
         batch['length'] = [each.item() for each in batch['length']]
         for field in ['category', 'location', 'bbox', 'velocity']:
             for i in range(B):
                 batch[field][i] = batch[field][i][:batch['length'][i]]
+        for name in ['pedestrian', 'bicyclist', 'vehicle']:
+            batch[name] = {
+                'length': [],
+                'location': [],
+                'bbox': [],
+                'velocity': []
+            }
 
         if self.state == 'train':
             batch = self.train_process(batch)
         else:
-            batch = self.test_process(batch)
+            batch, gt = self.test_process(batch)
 
+        for name in ['pedestrian', 'bicyclist', 'vehicle']:
+            for field in ['location', 'bbox', 'velocity']:
+                batch[name][field] = pad_sequence(batch[name][field], batch_first=True)
+                batch[name][field] = batch[name][field].to(self.device)
+            batch[name]['length'] = torch.tensor(batch[name]['length']).to(self.device)
+            batch[name]['location'] = batch[name]['location'] / self.axes_limit
         batch['map'] = torch.stack(batch['map'], dim=0)
-        batch['placing'] = torch.stack(batch['placing'], dim=0).to(self.device)
-        return batch['placing'], batch['map']
+        return batch['pedestrian'], batch['bicyclist'], batch['vehicle'], batch['map']
 
     def train_process(self, batch):
-        batch = self._random_rotate(batch, rotate=False)
-        batch = self._rasterize_object(batch)
+        batch = self._random_rotate(batch)
+        batch = self._sort_obj(batch)
+        batch = self._split_obj(batch)
         self.train_iters += 1
         return batch
 
     def test_process(self, batch):
         batch = self._random_rotate(batch, rotate=False)
-        batch = self._rasterize_object(batch)
+        batch = self._sort_obj(batch)
+        batch = self._split_obj(batch)
         return batch
 
     def _random_rotate(self, batch, rotate=True):
@@ -302,59 +306,35 @@ class ScoreModelProcessor:
                 batch['length'][i] = len(batch['category'][i])
         return batch
 
-    def _rasterize_object(self, batch):
+    def _sort_obj(self, batch):
         B = len(batch['length'])
-        batch['placing'] = []
         for i in range(B):
-            category = batch['category'][i].numpy()
-            location = batch['location'][i].numpy()
-            bbox = batch['bbox'][i].numpy()
-            velocity = batch['velocity'][i].numpy()
-            L = category.shape[0]
-            object_layers = {k: None for k in [1, 2, 3]}
-            placing = np.zeros((3, 800, 800))
-            for type_id in [1, 2, 3]:
-                object_layers[type_id] = {k: np.zeros((self.wl, self.wl), dtype=np.float32)
-                                          for k in ['occupancy', 'orientation', 'speed', 'heading']}
-            for j in range(L - 1):
-                working_layers = object_layers[category[j]]
-                w, l, theta = bbox[j]
-                speed, heading = velocity[j]
-                corners = np.array([[l / 2, w / 2],
-                                    [-l / 2, w / 2],
-                                    [-l / 2, -w / 2],
-                                    [l / 2, -w / 2]])
-                rotation = np.array([[np.cos(theta), np.sin(theta)],
-                                     [-np.sin(theta), np.cos(theta)]])
-                corners = np.dot(corners, rotation) + location[j]
-                corners[:, 0] = corners[:, 0] + self.axes_limit
-                corners[:, 1] = self.axes_limit - corners[:, 1]
-                corners = np.floor(corners / self.resolution).astype(int)
-                cv2.fillConvexPoly(working_layers['occupancy'], corners, 1)
-                row = int((self.axes_limit - location[j, 1]) / self.resolution)
-                col = int((location[j, 0] + self.axes_limit) / self.resolution)
-                working_layers['orientation'][row, col] = theta
-                working_layers['speed'][row, col] = speed
-                working_layers['heading'][row, col] = heading
+            L = len(batch['category'][i])
+            idx = list(range(L - 1))
+            idx.sort(key=lambda x: (-batch['location'][i][x, 1], batch['location'][i][x, 0]))
+            idx.append(L - 1)  # append index for end token
+            for field in ['category', 'location', 'bbox', 'velocity']:
+                batch[field][i] = batch[field][i][idx]
+        return batch
 
-                # convert to opencv coordinate
-                x = int((location[j, 0] + 40) / 0.1)
-                y = int((40 - location[j, 1]) / 0.1)
-                cv2.circle(placing[category[j] - 1], (x, y), 10, 1, thickness=-1)
-
-            for type_id in [1, 2, 3]:
-                tmp = object_layers[type_id]
-                object_layers[type_id] = np.stack([
-                    tmp['occupancy'],
-                    np.sin(tmp['orientation']) * tmp['occupancy'],
-                    np.cos(tmp['orientation']) * tmp['occupancy'],
-                    tmp['speed'],
-                    np.sin(tmp['heading']) * tmp['occupancy'],
-                    np.cos(tmp['heading']) * tmp['occupancy']
-                ], axis=0)
-            object_layers = np.concatenate([object_layers[1], object_layers[2], object_layers[3]], axis=0)
-            object_layers = torch.tensor(object_layers, dtype=torch.float32).to(self.device)
-            batch['map'][i] = torch.cat([batch['map'][i], object_layers], dim=0)
-
-            batch['placing'].append(torch.tensor(placing, dtype=torch.float32))
+    def _split_obj(self, batch):
+        B = len(batch['length'])
+        mapping = {
+            1: 'pedestrian',
+            2: 'bicyclist',
+            3: 'vehicle'
+        }
+        for i in range(B):
+            for category in [1, 2, 3]:
+                mask = (batch['category'][i] == category)
+                name = mapping[category]
+                batch[name]['length'].append(sum(mask).item())
+                batch[name]['location'].append(batch['location'][i][mask])
+                batch[name]['bbox'].append(batch['bbox'][i][mask])
+                batch[name]['velocity'].append(batch['velocity'][i][mask])
+        del batch['length']
+        del batch['category']
+        del batch['location']
+        del batch['bbox']
+        del batch['velocity']
         return batch

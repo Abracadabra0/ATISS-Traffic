@@ -29,7 +29,7 @@ class DiffusionLoss(nn.Module):
             'vehicle': {}
         }
         for name in ['pedestrian', 'bicyclist', 'vehicle']:
-            loss = pred[name]['length'].log_prob(target[name]['length']).mean()
+            loss = -pred[name]['length'].log_prob(target[name]['length']).mean()
             loss_dict[name]['length'] = loss
         for name in ['pedestrian', 'bicyclist', 'vehicle']:
             mask = get_length_mask(target[name]['length'])  # (B, L)

@@ -60,7 +60,7 @@ class SinusoidalEmb(nn.Module):
         super().__init__()
         self.dim = dim
         self.weights = math.log(10000) / (self.dim // 2 - 1)
-        self.weights = torch.exp(torch.arange(self.dim // 2) * -self.weights)
+        self.weights = torch.exp(torch.arange(self.dim // 2) * -self.weights).float()
 
     def forward(self, x):
         # x: (B, ...)

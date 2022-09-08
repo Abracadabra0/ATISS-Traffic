@@ -19,7 +19,7 @@ def to_numpy(data: dict):
 
 dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuSceneProcessed/train")
 dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
-processor = AutoregressiveProcessor('cpu').test()
+processor = AutoregressivePreprocessor('cpu').test()
 axes_limit = 40
 cat2color = {1: 'red', 2: 'blue', 3: 'green'}
 

@@ -15,7 +15,7 @@ class MapIndexLayer(nn.Module):
         # fmap: (B, C, wl, wl)
         # loc: (B, L, 2)
         C = fmap.size(1)
-        loc = loc.clamp(min=-1, max=0.999)
+        loc = loc.clamp(min=-0.999, max=0.999)
         x = loc[..., 0] * self.axes_limit
         y = loc[..., 1] * self.axes_limit
         row = ((self.axes_limit - y) / self.resolution).long()
@@ -56,7 +56,6 @@ class ConditionalEncoderLayer(nn.Module):
         src2 = self.self_attn(src, src, src, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)[0]
         src = src + self.dropout1(src2)
         src = self.norm1(src)  # (B, L, d_model)
-
         t_embed = self.time_mlp(t)  # (B, dim_feedforward * 2)
         weight = t_embed[:, :self.dim_feedforward].unsqueeze(1)
         bias = t_embed[:, self.dim_feedforward:].unsqueeze(1)
@@ -72,8 +71,8 @@ class ConditionalEncoder(nn.Module):
     def __init__(self, d_model, n_layers, nhead=12, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
-        self.layers = [ConditionalEncoderLayer(d_model, nhead, dim_feedforward, dim_t_embed, dropout)
-                       for _ in range(n_layers)]
+        self.layers = nn.ModuleList([ConditionalEncoderLayer(d_model, nhead, dim_feedforward, dim_t_embed, dropout)
+                       for _ in range(n_layers)])
         self.norm = nn.LayerNorm(d_model)
 
     def forward(self, src, t, src_mask=None, src_key_padding_mask=None):

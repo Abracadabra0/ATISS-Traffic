@@ -238,7 +238,7 @@ class DiffusionModelPreprocessor:
         if self.state == 'train':
             batch = self.train_process(batch)
         else:
-            batch, gt = self.test_process(batch)
+            batch = self.test_process(batch)
 
         for name in ['pedestrian', 'bicyclist', 'vehicle']:
             for field in ['location', 'bbox', 'velocity']:

@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from datasets import NuScenesDataset, AutoregressivePreprocessor, collate_fn
 from networks.autoregressive_transformer import AutoregressiveTransformer
 import numpy as np
-from losses.nll import WeightedNLL, lr_func
+from networks.losses.nll import lr_func
 import time
 
 if __name__ == '__main__':

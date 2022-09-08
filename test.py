@@ -24,24 +24,26 @@ if __name__ == '__main__':
     for batch in dataloader:
         pedestrians, bicyclists, vehicles, maps = preprocessor(batch)
         pred = model.generate(maps)
-
         maps = maps.cpu().numpy()
-        fig, ax = plt.subplots(figsize=(10, 10))
-        drivable_area = maps[0, 0]
-        ped_crossing = maps[0, 1]
-        walkway = maps[0, 2]
-        lane_divider = maps[0, 5]
-        orientation = maps[0, 6:8]
-        map_layers = np.stack([
-            drivable_area + lane_divider,
-            ped_crossing,
-            walkway
-        ], axis=-1) * 0.2
-        ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
-        for name in ['pedestrian', 'bicyclist', 'vehicle']:
-            color = name2color[name]
-            for i in range(pred[name]['length']):
-                loc = pred[name]['location'][0, i].cpu().numpy() * axes_limit
-                ax.plot(loc[0], loc[1], 'x', color=color)
-        fig.savefig(f"./result/test.png")
-        plt.close(fig)
+
+        for step in range(1000):
+            fig, ax = plt.subplots(figsize=(10, 10))
+            drivable_area = maps[0, 0]
+            ped_crossing = maps[0, 1]
+            walkway = maps[0, 2]
+            lane_divider = maps[0, 5]
+            orientation = maps[0, 6:8]
+            map_layers = np.stack([
+                drivable_area + lane_divider,
+                ped_crossing,
+                walkway
+            ], axis=-1) * 0.2
+            ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
+            for name in ['pedestrian', 'bicyclist', 'vehicle']:
+                color = name2color[name]
+                for i in range(pred[name]['length']):
+                    loc = pred[name]['location'][step][0, i].cpu().numpy() * axes_limit
+                    ax.plot(loc[0], loc[1], 'x', color=color)
+                    ax.annotate(str(i), loc)
+            fig.savefig("./result/test_%03d.png" % step)
+            plt.close(fig)

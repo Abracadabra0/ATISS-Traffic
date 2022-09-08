@@ -8,7 +8,7 @@ from .utils import get_length_mask
 from .losses import DiffusionLoss
 
 
-def linear_beta_schedule(timesteps, start=1e-4, end=1e-4):
+def linear_beta_schedule(timesteps, start=1e-4, end=0.02):
     return torch.linspace(start, end, timesteps, dtype=torch.float32)
 
 
@@ -125,7 +125,7 @@ class DiffusionBasedModel(nn.Module):
     def sample_step(self, x, t, noise):
         x = x - (1 - self.alpha[t]) / torch.sqrt(1 - self.alpha_bar[t]) * noise
         x = 1 / torch.sqrt(self.alpha[t]) * x
-        if t == 0:
+        if t != 0:
             x = x + self.posterior_std[t] * torch.randn_like(x)
         x = x.clamp(min=-0.999, max=0.999)
         return x
@@ -146,30 +146,42 @@ class DiffusionBasedModel(nn.Module):
         pred['pedestrian']['length'] = self.n_pedestrian(fmap_avg).sample().item()
         pred['bicyclist']['length'] = self.n_bicyclist(fmap_avg).sample().item()
         pred['vehicle']['length'] = self.n_vehicle(fmap_avg).sample().item()
+        print(pred['pedestrian']['length'], pred['bicyclist']['length'], pred['vehicle']['length'])
 
         # pedestrian
-        location = torch.randn((B, pred['pedestrian']['length'], 2), device=device)
-        mask = get_length_mask(pred['pedestrian']['length'])
+        pred['pedestrian']['location'] = []
+        location = torch.randn((pred['pedestrian']['length'], 2), device=device)
+        idx = list(range(pred['pedestrian']['length']))
+        idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
+        location = location[idx].unsqueeze(0)
+        mask = get_length_mask(torch.tensor([pred['pedestrian']['length']], device=device))
         for t in reversed(range(self.time_steps)):
             t = torch.tensor([t], device=device)
             noise = self.pedestrian_backbone(location, fmap, t, mask=mask)
             location = self.sample_step(location, t, noise)
-        pred['pedestrian']['location'] = location
+            pred['pedestrian']['location'].append(location)
         # bicyclist
-        location = torch.randn((B, pred['bicyclist']['length'], 2), device=device)
-        mask = get_length_mask(pred['bicyclist']['length'])
+        pred['bicyclist']['location'] = []
+        location = torch.randn((pred['bicyclist']['length'], 2), device=device)
+        idx = list(range(pred['bicyclist']['length']))
+        idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
+        location = location[idx].unsqueeze(0)
+        mask = get_length_mask(torch.tensor([pred['bicyclist']['length']], device=device))
         for t in reversed(range(self.time_steps)):
             t = torch.tensor([t], device=device)
             noise = self.bicyclist_backbone(location, fmap, t, mask=mask)
             location = self.sample_step(location, t, noise)
-        pred['bicyclist']['location'] = location
+            pred['bicyclist']['location'].append(location)
         # vehicle
-        location = torch.randn((B, pred['vehicle']['length'], 2), device=device)
-        mask = get_length_mask(pred['vehicle']['length'])
+        pred['vehicle']['location'] = []
+        location = torch.randn((pred['vehicle']['length'], 2), device=device)
+        idx = list(range(pred['vehicle']['length']))
+        idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
+        location = location[idx].unsqueeze(0)
+        mask = get_length_mask(torch.tensor([pred['vehicle']['length']], device=device))
         for t in reversed(range(self.time_steps)):
             t = torch.tensor([t], device=device)
             noise = self.vehicle_backbone(location, fmap, t, mask=mask)
             location = self.sample_step(location, t, noise)
-        pred['vehicle']['location'] = location
-
+            pred['vehicle']['location'].append(location)
         return pred

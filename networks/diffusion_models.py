@@ -150,7 +150,7 @@ class DiffusionBasedModel(nn.Module):
 
         # pedestrian
         pred['pedestrian']['location'] = []
-        location = torch.randn((pred['pedestrian']['length'], 2), device=device)
+        location = torch.rand((pred['pedestrian']['length'], 2), device=device) * 2 - 1
         idx = list(range(pred['pedestrian']['length']))
         idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
         location = location[idx].unsqueeze(0)
@@ -162,7 +162,7 @@ class DiffusionBasedModel(nn.Module):
             pred['pedestrian']['location'].append(location)
         # bicyclist
         pred['bicyclist']['location'] = []
-        location = torch.randn((pred['bicyclist']['length'], 2), device=device)
+        location = torch.rand((pred['bicyclist']['length'], 2), device=device) * 2 - 1
         idx = list(range(pred['bicyclist']['length']))
         idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
         location = location[idx].unsqueeze(0)
@@ -174,7 +174,7 @@ class DiffusionBasedModel(nn.Module):
             pred['bicyclist']['location'].append(location)
         # vehicle
         pred['vehicle']['location'] = []
-        location = torch.randn((pred['vehicle']['length'], 2), device=device)
+        location = torch.randn((pred['vehicle']['length'], 2), device=device) * 2 - 1
         idx = list(range(pred['vehicle']['length']))
         idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
         location = location[idx].unsqueeze(0)

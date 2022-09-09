@@ -19,7 +19,7 @@ if __name__ == '__main__':
     os.makedirs('./ckpts', exist_ok=True)
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_fn)
-    preprocessor = DiffusionModelPreprocessor(device).test()
+    preprocessor = DiffusionModelPreprocessor(device).train()
     model = DiffusionBasedModel(time_steps=1000)
     model.to(device)
     optimizer = Adam(model.parameters(), lr=2e-5)

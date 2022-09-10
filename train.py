@@ -32,7 +32,7 @@ if __name__ == '__main__':
             loss_dict = model(pedestrians, bicyclists, vehicles, maps)
             for name in ['pedestrian', 'bicyclist', 'vehicle']:
                 for entry in ['length', 'noise']:
-                    writer.add_scalar(f'{name}+{entry}', loss_dict[name][entry], iters)
+                    writer.add_scalar(f'loss/{name}+{entry}', loss_dict[name][entry], iters)
             writer.add_scalar('all', loss_dict['all'], iters)
             print(iters, loss_dict['all'].item())
             optimizer.zero_grad()

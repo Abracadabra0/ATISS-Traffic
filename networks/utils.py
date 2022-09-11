@@ -21,3 +21,26 @@ def get_length_mask(lengths):
     idx_range = torch.arange(L, device=lengths.device).expand(N, -1)
     lengths = lengths.reshape(-1, 1).expand(-1, L)
     return idx_range >= lengths
+
+
+class MapIndexLayer(nn.Module):
+    def __init__(self, axes_limit=40, resolution=0.25):
+        super().__init__()
+        self.axes_limit = axes_limit
+        self.resolution = resolution
+        self.wl = int(self.axes_limit * 2 / self.resolution)
+
+    def forward(self, fmap, loc):
+        # fmap: (B, C, wl, wl)
+        # loc: (B, L, 2)
+        C = fmap.size(1)
+        loc = loc.clamp(min=-0.999, max=0.999)
+        x = loc[..., 0] * self.axes_limit
+        y = loc[..., 1] * self.axes_limit
+        row = ((self.axes_limit - y) / self.resolution).long()
+        col = ((self.axes_limit + x) / self.resolution).long()
+        idx = row * self.wl + col  # (B, L)
+        idx = idx[..., None].repeat(1, 1, C)  # (B, L, C)
+        fmap = fmap.flatten(2, 3).permute(0, 2, 1)  # (B, wl * wl, C)
+        indexed = fmap.gather(dim=1, index=idx)  # (B, L, C)
+        return indexed

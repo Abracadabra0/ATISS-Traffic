@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
-from .conditional_transformer import MapIndexLayer
+from .utils import MapIndexLayer
 
 
 class FixedPositionalEncoding(nn.Module):

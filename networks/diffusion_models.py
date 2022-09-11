@@ -125,8 +125,8 @@ class DiffusionBasedModel(nn.Module):
     def sample_step(self, x, t, noise):
         x = x - (1 - self.alpha[t]) / torch.sqrt(1 - self.alpha_bar[t]) * noise
         x = 1 / torch.sqrt(self.alpha[t]) * x
-        if t != 0:
-            x = x + self.posterior_std[t] * torch.randn_like(x)
+        # if t != 0:
+            # x = x + self.posterior_std[t] * torch.randn_like(x) / 4
         x = x.clamp(min=-0.999, max=0.999)
         return x
 

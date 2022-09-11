@@ -88,7 +88,7 @@ class AutoregressivePreprocessor:
                                              [-np.sin(rad), np.cos(rad)]],
                                             dtype=torch.float32)
                 batch['map'][i] = F.rotate(batch['map'][i], deg)
-                batch['map'][i][5] += rad
+                batch['map'][i][6] += rad
             # drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation
             drivable_area = batch['map'][i][0]
             ped_crossing = batch['map'][i][1]
@@ -201,6 +201,16 @@ class AutoregressivePreprocessor:
 
 
 class DiffusionModelPreprocessor:
+    """
+        input_layers:
+            drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation
+            7 layers in total
+
+        output_layers:
+            drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation(sin), orientation(cos),
+            8 layers in total
+    """
+
     def __init__(self, device):
         self.device = device
         self.axes_limit = 40
@@ -217,7 +227,7 @@ class DiffusionModelPreprocessor:
         self.state = 'test'
         return self
 
-    def __call__(self, batch, *args, **kwargs):
+    def __call__(self, batch):
         B = len(batch['length'])
         batch['map'] = batch['map'].to(self.device)
         for field in batch:
@@ -273,7 +283,7 @@ class DiffusionModelPreprocessor:
                                              [-np.sin(rad), np.cos(rad)]],
                                             dtype=torch.float32)
                 batch['map'][i] = F.rotate(batch['map'][i], deg)
-                batch['map'][i][5] += rad
+                batch['map'][i][6] += rad
             # drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation
             drivable_area = batch['map'][i][0]
             ped_crossing = batch['map'][i][1]

@@ -1,34 +1,12 @@
 import torch
 from torch import nn
 from torch.nn.modules.activation import MultiheadAttention
-from .embeddings import SinusoidalEmb, TrainablePE2D
-
-
-class MapIndexLayer(nn.Module):
-    def __init__(self, axes_limit=40, resolution=0.25):
-        super().__init__()
-        self.axes_limit = axes_limit
-        self.resolution = resolution
-        self.wl = int(self.axes_limit * 2 / self.resolution)
-
-    def forward(self, fmap, loc):
-        # fmap: (B, C, wl, wl)
-        # loc: (B, L, 2)
-        C = fmap.size(1)
-        loc = loc.clamp(min=-0.999, max=0.999)
-        x = loc[..., 0] * self.axes_limit
-        y = loc[..., 1] * self.axes_limit
-        row = ((self.axes_limit - y) / self.resolution).long()
-        col = ((self.axes_limit + x) / self.resolution).long()
-        idx = row * self.wl + col  # (B, L)
-        idx = idx[..., None].repeat(1, 1, C)  # (B, L, C)
-        fmap = fmap.flatten(2, 3).permute(0, 2, 1)  # (B, wl * wl, C)
-        indexed = fmap.gather(dim=1, index=idx)  # (B, L, C)
-        return indexed
+from .embeddings import SinusoidalEmb, TrainablePE, TrainablePE2D
+from .utils import MapIndexLayer
 
 
 class ConditionalEncoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, nhead, dim_feedforward=1024, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.dim_feedforward = dim_feedforward
@@ -88,10 +66,11 @@ class TransformerBackbone(nn.Module):
     def __init__(self,
                  d_model,
                  n_layers,
-                 dim_pos_embed=128,
+                 dim_pos_embed=64,
                  dim_map_embed=128,
                  nhead=12, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
+        self.pos_embedding = SinusoidalEmb(dim_pos_embed)
         self.indexing = MapIndexLayer(axes_limit=40, resolution=0.25)
         self.head = nn.Sequential(
             nn.Linear(dim_pos_embed * 2 + dim_map_embed, d_model),
@@ -100,7 +79,8 @@ class TransformerBackbone(nn.Module):
             nn.Linear(d_model, d_model),
             nn.LayerNorm(d_model)
         )
-        self.pe = TrainablePE2D(dim_pos_embed)
+        # self.pe = TrainablePE2D(dim_pos_embed)
+        self.pe = TrainablePE(d_model)
         self.body = ConditionalEncoder(d_model=d_model,
                                        n_layers=n_layers,
                                        nhead=nhead,
@@ -117,9 +97,9 @@ class TransformerBackbone(nn.Module):
     def forward(self, pos, fmap, t, mask=None):
         # pos: (B, L, 2)
         map_info = self.indexing(fmap, pos)  # (B, L, dim_map_embed)
-        pos_embed = self.pe(pos)  # (B, L, dim_pos_embed)
+        pos_embed = self.pos_embedding(pos)  # (B, L, dim_pos_embed)
         x = torch.cat([pos_embed, map_info], dim=2)
-        x = self.head(x)  # (B, L, d_model)
+        x = self.pe(self.head(x))  # (B, L, d_model)
         x = self.body(x, t, src_key_padding_mask=mask)
         x = self.tail(x)
         return x

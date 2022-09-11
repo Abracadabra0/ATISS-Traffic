@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
+from .conditional_transformer import MapIndexLayer
 
 
 class FixedPositionalEncoding(nn.Module):
@@ -36,6 +37,28 @@ class TrainablePE(nn.Module):
     def forward(self, x):
         x = x + self.pe[:x.size(1)]
         return self.dropout(x)
+
+
+class TrainablePE2D(nn.Module):
+    def __init__(self, dim, dropout=0.1, wl=320):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        self.feature = nn.Parameter(torch.randn(1, dim // 8, wl, wl))
+        self.conv = nn.Sequential(
+            nn.Conv2d(dim // 8, dim // 4, 7, padding=3),
+            nn.ReLU(),
+            nn.Conv2d(dim // 4, dim // 2, 5, padding=2),
+            nn.ReLU(),
+            nn.Conv2d(dim // 2, dim, 3, padding=1),
+        )
+        self.indexing = MapIndexLayer(axes_limit=40, resolution=0.25)
+
+    def forward(self, x):
+        # x: (B, L, 2)
+        B = x.shape[0]
+        fmap = self.conv(self.feature).repeat(B, 1, 1, 1)
+        pe = self.indexing(fmap, x)  # (B, L, C)
+        return self.dropout(pe)
 
 
 class PositionalEncoding(nn.Module):

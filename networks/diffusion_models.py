@@ -13,7 +13,7 @@ def linear_beta_schedule(timesteps, start=1e-4, end=0.02):
 
 
 class ObjectNumberPredictor(nn.Module):
-    def __init__(self, dim_feature, dim_hidden=128, max=99):
+    def __init__(self, dim_feature, dim_hidden=128, max=63):
         super().__init__()
         self.model = nn.Sequential(
             nn.Linear(dim_feature, dim_hidden),

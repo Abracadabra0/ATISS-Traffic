@@ -11,7 +11,7 @@ if __name__ == '__main__':
     device = torch.device(0)
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_fn)
-    preprocessor = DiffusionModelPreprocessor(device).test()
+    preprocessor = DiffusionModelPreprocessor(device).train()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
     model.load_state_dict(torch.load('./ckpts/09-10-00:04:03'))

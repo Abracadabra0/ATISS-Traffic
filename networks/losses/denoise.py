@@ -32,9 +32,10 @@ class DiffusionLoss(nn.Module):
             loss = -pred[name]['length'].log_prob(target[name]['length']).mean()
             loss_dict[name]['length'] = loss
         for name in ['pedestrian', 'bicyclist', 'vehicle']:
+            B = len(target[name]['length'])
             mask = get_length_mask(target[name]['length'])  # (B, L)
-            # (B, L, 2)
-            loss = torch.mean(torch.square((pred[name]['noise'] - target[name]['noise']) * mask[..., None]))
+            loss = torch.square((pred[name]['noise'] - target[name]['noise']) * mask[..., None]).mean(dim=(1, 2))  # (B, )
+            loss = loss[target[name]['length'] > 0].sum() / B
             loss_dict[name]['noise'] = loss
         # aggregate loss
         loss = torch.tensor(0, device=target['pedestrian']['length'].device)

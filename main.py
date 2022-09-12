@@ -16,6 +16,11 @@ if __name__ == '__main__':
     device = torch.device(0)
     np.random.seed(0)
     torch.manual_seed(0)
+    timestamp = time.strftime('%m-%d-%H:%M:%S')
+    writer = SummaryWriter(log_dir=f'./log/{timestamp}')
+    os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
+    dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
+    dataloader = DataLoader(dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
     dataset = NuScenesDataset("/projects/perception/datasets/nuScenesProcessed/train")
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=6, collate_fn=collate_fn)
     processor = AutoregressivePreprocessor('cpu').train()
@@ -34,12 +39,18 @@ if __name__ == '__main__':
         for batch in dataloader:
             batch, lengths, gt = processor(batch, window_size=1)
             loss = model(batch, lengths, gt)
-            print(f"{iters}: {loss['all'].mean().item()}")
+            for k, v in loss.items():
+                writer.add_scalar(f'loss/{k}', loss[k].mean(), iters)
             optimizer.zero_grad()
             loss['all'].mean().backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
-            print('loss ok')
             optimizer.step()
-            print('step ok')
             scheduler.step()
             iters += 1
+        if (epoch + 1) % 2 == 0:
+            torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))
+            torch.save(optimizer.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'optimizer-{epoch}'))
+            torch.save(scheduler.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'scheduler-{epoch}'))
+
+    model.cpu()
+    torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', 'final'))

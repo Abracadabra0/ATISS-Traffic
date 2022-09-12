@@ -22,7 +22,7 @@ class ConditionalEncoderLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
 
         self.time_mlp = nn.Sequential(
-            SinusoidalEmb(dim_t_embed),
+            SinusoidalEmb(dim_t_embed, 1),
             nn.Linear(dim_t_embed, dim_feedforward * 2),
             nn.GELU(),
             nn.Linear(dim_feedforward * 2, dim_feedforward * 2)
@@ -66,14 +66,15 @@ class TransformerBackbone(nn.Module):
     def __init__(self,
                  d_model,
                  n_layers,
-                 dim_pos_embed=64,
+                 dim_pos_embed=128,
                  dim_map_embed=128,
+                 dim_category_embed=128,
                  nhead=12, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
-        self.pos_embedding = SinusoidalEmb(dim_pos_embed)
+        self.pos_embedding = SinusoidalEmb(dim_pos_embed, 2)
         self.indexing = MapIndexLayer(axes_limit=40, resolution=0.25)
         self.head = nn.Sequential(
-            nn.Linear(dim_pos_embed * 2 + dim_map_embed, d_model),
+            nn.Linear(dim_pos_embed + dim_map_embed + dim_category_embed, d_model),
             nn.LayerNorm(d_model),
             nn.GELU(),
             nn.Linear(d_model, d_model),
@@ -94,11 +95,11 @@ class TransformerBackbone(nn.Module):
             nn.Linear(d_model, 2),
         )
 
-    def forward(self, pos, fmap, t, mask=None):
+    def forward(self, fcategory, pos, fmap, t, mask=None):
         # pos: (B, L, 2)
         map_info = self.indexing(fmap, pos)  # (B, L, dim_map_embed)
         pos_embed = self.pos_embedding(pos)  # (B, L, dim_pos_embed)
-        x = torch.cat([pos_embed, map_info], dim=2)
+        x = torch.cat([fcategory, pos_embed, map_info], dim=2)
         x = self.pe(self.head(x))  # (B, L, d_model)
         x = self.body(x, t, src_key_padding_mask=mask)
         x = self.tail(x)

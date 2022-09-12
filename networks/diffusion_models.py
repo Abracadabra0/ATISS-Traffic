@@ -51,9 +51,8 @@ class DiffusionBasedModel(nn.Module):
         self.n_pedestrian = ObjectNumberPredictor(128)
         self.n_bicyclist = ObjectNumberPredictor(128)
         self.n_vehicle = ObjectNumberPredictor(128)
-        self.pedestrian_backbone = TransformerBackbone(d_model, n_layers)
-        self.bicyclist_backbone = TransformerBackbone(d_model, n_layers)
-        self.vehicle_backbone = TransformerBackbone(d_model, n_layers)
+        self.category_embedding = nn.Embedding(3, 128)
+        self.backbone = TransformerBackbone(d_model, n_layers)
 
         self.axes_limit = axes_limit
         self.loss_fn = DiffusionLoss(
@@ -105,19 +104,25 @@ class DiffusionBasedModel(nn.Module):
         target['pedestrian']['noise'] = noise
         perturbed = pedestrians['location'] * scale[:, None, None] + noise * std[:, None, None]
         mask = get_length_mask(pedestrians['length'])
-        pred['pedestrian']['noise'] = self.pedestrian_backbone(perturbed, fmap, t, mask=mask)
+        category = torch.ones((B, max(pedestrians['length'])), dtype=torch.long, device=device) * 0
+        fcategory = self.category_embedding(category)
+        pred['pedestrian']['noise'] = self.backbone(fcategory, perturbed, fmap, t, mask=mask)
         # bicyclist
         noise = torch.randn_like(bicyclists['location'])
         target['bicyclist']['noise'] = noise
         perturbed = bicyclists['location'] * scale[:, None, None] + noise * std[:, None, None]
         mask = get_length_mask(bicyclists['length'])
-        pred['bicyclist']['noise'] = self.bicyclist_backbone(perturbed, fmap, t, mask=mask)
+        category = torch.ones((B, max(bicyclists['length'])), dtype=torch.long, device=device) * 1
+        fcategory = self.category_embedding(category)
+        pred['bicyclist']['noise'] = self.backbone(fcategory, perturbed, fmap, t, mask=mask)
         # vehicle
         noise = torch.randn_like(vehicles['location'])
         target['vehicle']['noise'] = noise
         perturbed = vehicles['location'] * scale[:, None, None] + noise * std[:, None, None]
         mask = get_length_mask(vehicles['length'])
-        pred['vehicle']['noise'] = self.vehicle_backbone(perturbed, fmap, t, mask=mask)
+        category = torch.ones((B, max(vehicles['length'])), dtype=torch.long, device=device) * 2
+        fcategory = self.category_embedding(category)
+        pred['bicyclist']['noise'] = self.backbone(fcategory, perturbed, fmap, t, mask=mask)
 
         loss_dict = self.loss_fn(pred, target)
         return loss_dict

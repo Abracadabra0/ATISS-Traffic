@@ -79,10 +79,10 @@ class PositionalEncoding(nn.Module):
 
 
 class SinusoidalEmb(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, input_dim):
         super().__init__()
         self.dim = dim
-        self.weights = math.log(10000) / (self.dim // 2 - 1)
+        self.weights = math.log(10000) / (self.dim // input_dim // 2 - 1)
         self.weights = torch.exp(torch.arange(self.dim // 2) * -self.weights).float()
 
     def forward(self, x):

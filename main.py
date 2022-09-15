@@ -21,9 +21,10 @@ if __name__ == '__main__':
     os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
     dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
     dataloader = DataLoader(dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
-    dataset = NuScenesDataset("/projects/perception/datasets/nuScenesProcessed/train")
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=6, collate_fn=collate_fn)
-    processor = AutoregressivePreprocessor('cpu').train()
+    preprocessor = AutoregressivePreprocessor('cpu').train()
+    val_dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/test")
+    val_dataloader = DataLoader(val_dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
+    val_preprocessor = AutoregressivePreprocessor('cpu').train()
 
     model = AutoregressiveTransformer()
     model = DataParallel(model).to(device)
@@ -37,7 +38,7 @@ if __name__ == '__main__':
 
     for epoch in range(n_epochs):
         for batch in dataloader:
-            batch, lengths, gt = processor(batch, window_size=1)
+            batch, lengths, gt = preprocessor(batch, window_size=1)
             loss = model(batch, lengths, gt)
             for k, v in loss.items():
                 writer.add_scalar(f'loss/{k}', loss[k].mean(), iters)
@@ -48,6 +49,18 @@ if __name__ == '__main__':
             scheduler.step()
             iters += 1
         if (epoch + 1) % 2 == 0:
+            model.eval()
+            loss_dict = {k: [] for k in ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']}
+            for batch in val_dataloader:
+                batch, lengths, gt = val_preprocessor(batch)
+                with torch.no_grad():
+                    loss = model(batch, lengths, gt)
+                for k, v in loss.items():
+                    loss_dict[k].append(v.mean().item())
+            for k in loss_dict:
+                writer.add_scalar(f'val_loss/{k}', sum(loss_dict[k]) / len(loss_dict[k]), epoch)
+            model.train()
+
             torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))
             torch.save(optimizer.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'optimizer-{epoch}'))
             torch.save(scheduler.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'scheduler-{epoch}'))

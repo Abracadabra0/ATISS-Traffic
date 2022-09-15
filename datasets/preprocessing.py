@@ -73,7 +73,7 @@ class AutoregressivePreprocessor:
     def test_process(self, batch, n_keep=0):
         batch = self._random_rotate(batch, rotate=False)
         batch = self._sort_obj(batch)
-        batch, gt = self._random_masking(batch, n_keep=n_keep)
+        batch, gt = self._random_masking(batch, window_size=1)
         batch = self._rasterize_object(batch)
         return batch, gt
 

@@ -83,15 +83,15 @@ class SinusoidalEmb(nn.Module):
         super().__init__()
         self.dim = dim
         self.weights = math.log(10000) / (self.dim // input_dim // 2 - 1)
-        self.weights = torch.exp(torch.arange(self.dim // 2) * -self.weights).float()
+        self.weights = torch.exp(torch.arange(self.dim // input_dim // 2) * -self.weights).float()
 
     def forward(self, x):
-        # x: (B, ...)
+        # x: (B, ) or (B, L, input_dim)
         device = x.device
         emb = x[..., None] * self.weights.to(device)
-        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
+        emb = torch.cat([emb.sin(), emb.cos()], dim=-1)
         if len(x.shape) == 1:
-            return emb.flatten(1)
+            return emb.flatten(1)  # (B, dim)
         else:
-            return emb.flatten(2)
+            return emb.flatten(2)  # (B, L, dim)
 

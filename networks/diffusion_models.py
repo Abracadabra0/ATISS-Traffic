@@ -34,25 +34,23 @@ class ObjectNumberPredictor(nn.Module):
 
 
 class DiffusionBasedModel(nn.Module):
-    def __init__(self, time_steps, d_model=768, n_layers=12, axes_limit=40):
+    def __init__(self, time_steps, axes_limit=40):
         super().__init__()
         self.time_steps = time_steps
         beta = linear_beta_schedule(time_steps)
         alpha = 1. - beta
         alpha_bar = torch.cumprod(alpha, dim=0)
-        alpha_bar_rshift = F.pad(alpha_bar[:-1], (1, 0), value=1.)
-        posterior_variance = beta * (1. - alpha_bar_rshift) / (1. - alpha_bar)
-        self.register_buffer('alpha', alpha)
         self.register_buffer('alpha_bar', alpha_bar)
-        self.register_buffer('prior_std', torch.sqrt(1 - alpha_bar))
-        self.register_buffer('posterior_std', torch.sqrt(posterior_variance))
-        self.feature_extractor = Extractor(8)
+        self.feature_extractor = nn.ModuleDict({
+            'pedestrian': Extractor(8),
+            'bicyclist': Extractor(8),
+            'vehicle': Extractor(8)
+        })
 
         self.n_pedestrian = ObjectNumberPredictor(128)
         self.n_bicyclist = ObjectNumberPredictor(128)
         self.n_vehicle = ObjectNumberPredictor(128)
-        self.category_embedding = nn.Embedding(3, 128)
-        self.backbone = TransformerBackbone(d_model, n_layers)
+        self.backbone = TransformerBackbone()
 
         self.axes_limit = axes_limit
         self.loss_fn = DiffusionLoss(
@@ -74,7 +72,9 @@ class DiffusionBasedModel(nn.Module):
             L = category['length'].max().item()
             for field in ['location', 'bbox', 'velocity']:
                 category[field] = category[field][:, :L]
-        fmap = self.feature_extractor(maps)  # (B, 128, 320, 320)
+        fmap = {}  # (B, 128, 320, 320)
+        for field in ['pedestrian', 'bicyclist', 'vehicle']:
+            fmap[field] = self.feature_extractor[field](maps)
         pred = {
             'pedestrian': {},
             'bicyclist': {},
@@ -86,10 +86,9 @@ class DiffusionBasedModel(nn.Module):
             'vehicle': {}
         }
         # predict number of objects
-        fmap_avg = fmap.mean(dim=(2, 3))
-        pred['pedestrian']['length'] = self.n_pedestrian(fmap_avg)
-        pred['bicyclist']['length'] = self.n_bicyclist(fmap_avg)
-        pred['vehicle']['length'] = self.n_vehicle(fmap_avg)
+        pred['pedestrian']['length'] = self.n_pedestrian(fmap['pedestrian'].mean(dim=(2, 3)))
+        pred['bicyclist']['length'] = self.n_bicyclist(fmap['bicyclist'].mean(dim=(2, 3)))
+        pred['vehicle']['length'] = self.n_vehicle(fmap['vehicle'].mean(dim=(2, 3)))
         target['pedestrian']['length'] = pedestrians['length']
         target['bicyclist']['length'] = bicyclists['length']
         target['vehicle']['length'] = vehicles['length']
@@ -97,32 +96,25 @@ class DiffusionBasedModel(nn.Module):
         # predict location noise
         t = torch.randint(0, self.time_steps, (B, ), device=device)
         # perturb data
-        scale = torch.sqrt(self.alpha_bar[t]).to(device)  # (B, )
-        std = self.prior_std[t].to(device)  # (B, )
-        # pedestrian
-        noise = torch.randn_like(pedestrians['location'])
-        target['pedestrian']['noise'] = noise
-        perturbed = pedestrians['location'] * scale[:, None, None] + noise * std[:, None, None]
-        mask = get_length_mask(pedestrians['length'])
-        category = torch.ones((B, max(pedestrians['length'])), dtype=torch.long, device=device) * 0
-        fcategory = self.category_embedding(category)
-        pred['pedestrian']['noise'] = self.backbone(fcategory, perturbed, fmap, t, mask=mask)
-        # bicyclist
-        noise = torch.randn_like(bicyclists['location'])
-        target['bicyclist']['noise'] = noise
-        perturbed = bicyclists['location'] * scale[:, None, None] + noise * std[:, None, None]
-        mask = get_length_mask(bicyclists['length'])
-        category = torch.ones((B, max(bicyclists['length'])), dtype=torch.long, device=device) * 1
-        fcategory = self.category_embedding(category)
-        pred['bicyclist']['noise'] = self.backbone(fcategory, perturbed, fmap, t, mask=mask)
-        # vehicle
-        noise = torch.randn_like(vehicles['location'])
-        target['vehicle']['noise'] = noise
-        perturbed = vehicles['location'] * scale[:, None, None] + noise * std[:, None, None]
-        mask = get_length_mask(vehicles['length'])
-        category = torch.ones((B, max(vehicles['length'])), dtype=torch.long, device=device) * 2
-        fcategory = self.category_embedding(category)
-        pred['bicyclist']['noise'] = self.backbone(fcategory, perturbed, fmap, t, mask=mask)
+        inputs = {'pedestrian': pedestrians,
+                  'bicyclist': bicyclists,
+                  'vehicle': vehicles}
+        scale = torch.sqrt(self.alpha_bar)[t].to(device)  # (B, )
+        std = torch.sqrt(1 - self.alpha_bar)[t].to(device)  # (B, )
+        pos = {}
+        for field in ['pedestrian', 'bicyclist', 'vehicle']:
+            noise = torch.randn_like(pedestrians['location'])
+            target[field]['noise'] = noise
+            perturbed = inputs[field]['location'] * scale[:, None, None] + noise * std[:, None, None]
+            pos[field] = perturbed
+        mask = torch.cat([
+            get_length_mask(pedestrians['length']),
+            get_length_mask(bicyclists['length']),
+            get_length_mask(vehicles['length'])
+        ], dim=1)
+        result = self.backbone(pos, fmap, t, mask)
+        for field in ['pedestrian', 'bicyclist', 'vehicle']:
+            pred[field]['noise'] = result[field]
 
         loss_dict = self.loss_fn(pred, target)
         return loss_dict

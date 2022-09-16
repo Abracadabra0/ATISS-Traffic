@@ -12,7 +12,8 @@ class ConditionalEncoderLayer(nn.Module):
         self.dim_feedforward = dim_feedforward
         self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
         # Implementation of Feedforward model
-        self.linear = nn.Linear(d_model, dim_feedforward)
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
         self.dropout = nn.Dropout(dropout)
 
         self.norm1 = nn.LayerNorm(d_model)
@@ -34,10 +35,10 @@ class ConditionalEncoderLayer(nn.Module):
         t_embed = self.time_mlp(t)  # (B, dim_feedforward * 2)
         weight = t_embed[:, :self.dim_feedforward].unsqueeze(1)
         bias = t_embed[:, self.dim_feedforward:].unsqueeze(1)
-        src2 = self.linear(src)
+        src2 = self.linear1(src)
         src2 = self.dropout(self.act(src2))
         src2 = weight * src2 + bias
-        src = src + self.dropout(src2)
+        src = src + self.dropout(self.linear2(src2))
         src = self.norm2(src)
         return src
 
@@ -102,7 +103,7 @@ class TransformerBackbone(nn.Module):
             B, L, *_ = pos[field].shape
             length.append(L)
             map_info = self.indexing(fmap[field], pos[field])
-            pos_embed = self.pos_embedding(pos)
+            pos_embed = self.pos_embedding(pos[field])
             category = torch.ones((B, L), dtype=torch.long).to(map_info.device) * i
             fcategory = self.category_embedding(category)  # (B, L, dim_category_embed)
             feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)

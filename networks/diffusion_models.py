@@ -103,7 +103,7 @@ class DiffusionBasedModel(nn.Module):
         std = torch.sqrt(1 - self.alpha_bar)[t].to(device)  # (B, )
         pos = {}
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            noise = torch.randn_like(pedestrians['location'])
+            noise = torch.randn_like(inputs[field]['location'])
             target[field]['noise'] = noise
             perturbed = inputs[field]['location'] * scale[:, None, None] + noise * std[:, None, None]
             pos[field] = perturbed

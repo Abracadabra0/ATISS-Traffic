@@ -65,6 +65,13 @@ class DiffusionBasedModel(nn.Module):
             }
         )
 
+    def perturb(self, x, t):
+        scale = torch.sqrt(self.alpha_bar)[t].to(t.device)  # (B, )
+        std = torch.sqrt(1 - self.alpha_bar)[t].to(t.device)  # (B, )
+        noise = torch.randn_like(x)
+        perturbed = x * scale[:, None, None] + noise * std[:, None, None]
+        return perturbed
+
     def forward(self, pedestrians, bicyclists, vehicles, maps):
         B = maps.size(0)
         device = maps.device
@@ -99,13 +106,10 @@ class DiffusionBasedModel(nn.Module):
         inputs = {'pedestrian': pedestrians,
                   'bicyclist': bicyclists,
                   'vehicle': vehicles}
-        scale = torch.sqrt(self.alpha_bar)[t].to(device)  # (B, )
-        std = torch.sqrt(1 - self.alpha_bar)[t].to(device)  # (B, )
         pos = {}
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            noise = torch.randn_like(inputs[field]['location'])
-            target[field]['noise'] = noise
-            perturbed = inputs[field]['location'] * scale[:, None, None] + noise * std[:, None, None]
+            target[field]['location'] = inputs[field]['location']
+            perturbed = self.perturb(inputs[field]['location'], t)
             pos[field] = perturbed
         mask = torch.cat([
             get_length_mask(pedestrians['length']),
@@ -114,7 +118,7 @@ class DiffusionBasedModel(nn.Module):
         ], dim=1)
         result = self.backbone(pos, fmap, t, mask)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            pred[field]['noise'] = result[field]
+            pred[field]['location'] = result[field]
 
         loss_dict = self.loss_fn(pred, target)
         return loss_dict

@@ -253,4 +253,15 @@ for i_scene in range(len(nusc.scene)):
     pool.apply_async(preprocess_scene, args=(i_scene, ), callback=callback)
 pool.close()
 pool.join()
+if split == 'trainval':
+    folders = ['train', 'val']
+else:
+    folders = ['test']
+for folder in folders:
+    os.chdir(folder)
+    for sample in os.listdir():
+        if len(os.listdir(sample)) != 5:
+            print(f'remove {sample}')
+            os.rmdir(sample)
+    os.chdir('..')
 print('All done')

@@ -22,7 +22,7 @@ if __name__ == '__main__':
     dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
     dataloader = DataLoader(dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
     preprocessor = AutoregressivePreprocessor('cpu').train()
-    val_dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/test")
+    val_dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/val")
     val_dataloader = DataLoader(val_dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
     val_preprocessor = AutoregressivePreprocessor('cpu').train()
 

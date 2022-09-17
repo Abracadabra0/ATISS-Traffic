@@ -49,21 +49,30 @@ axes_limit = 40
 wl = int(axes_limit * 2 / resolution)
 
 dataroot = '/shared/perception/datasets/nuScenesMetadata'
-version = 'v1.0-test'
+version = 'v1.0-trainval'
 output_path = '/shared/perception/datasets/nuScenesProcessed'
-split = 'test'
+split = 'trainval'
 
 n_process = None
 
 nusc = NuScenes(version=version, dataroot=dataroot, verbose=True)
 os.makedirs(output_path, exist_ok=True)
 os.chdir(output_path)
-if split == 'train':
+folder_mapping = {}
+if split == 'trainval':
     os.makedirs('train', exist_ok=True)
-    os.chdir('train')
+    os.makedirs('val', exist_ok=True)
+    all_index = np.arange(len(nusc.scene))
+    val = np.random.choice(all_index, int(len(nusc.scene) * 0.2), replace=False)
+    for i in range(len(nusc.scene)):
+        if i in val:
+            folder_mapping[i] = 'val'
+        else:
+            folder_mapping[i] = 'train'
 else:
     os.makedirs('test', exist_ok=True)
-    os.chdir('test')
+    for i in range(len(nusc.scene)):
+        folder_mapping[i] = 'test'
 
 def preprocess_scene(i_scene):
     scene = nusc.scene[i_scene]
@@ -79,7 +88,7 @@ def preprocess_scene(i_scene):
         ego_to_world = get_homogeneous_matrix(np.zeros(3), Quaternion(pose['rotation']).rotation_matrix)
 
         # create directory
-        os.makedirs(sample_data['token'], exist_ok=True)
+        os.makedirs(os.path.join(folder_mapping[i_scene], sample_data['token']), exist_ok=True)
 
         # get annotated map
         nusc_map = NuScenesMap(dataroot=dataroot, map_name=map_name)
@@ -181,7 +190,7 @@ def preprocess_scene(i_scene):
 
         # convert to torch.tensor and save it
         map_layers = torch.tensor(map_layers.copy(), dtype=torch.float32)
-        torch.save(map_layers, os.path.join(sample_data['token'], 'map'))
+        torch.save(map_layers, os.path.join(folder_mapping[i_scene], sample_data['token'], 'map'))
 
         # retrieve all objects that fall inside the boundaries
         _, boxes, _ = nusc.get_sample_data(sample['data']['LIDAR_TOP'], box_vis_level=BoxVisibility.ALL,
@@ -226,10 +235,10 @@ def preprocess_scene(i_scene):
         bbox.append(np.zeros(3))
         velocity.append(np.zeros(2))
         # convert to tensor and save
-        torch.save(torch.tensor(np.array(category), dtype=torch.int64), os.path.join(sample_data['token'], 'category'))
-        torch.save(torch.tensor(np.array(location), dtype=torch.float32), os.path.join(sample_data['token'], 'location'))
-        torch.save(torch.tensor(np.array(bbox), dtype=torch.float32), os.path.join(sample_data['token'], 'bbox'))
-        torch.save(torch.tensor(np.array(velocity), dtype=torch.float32), os.path.join(sample_data['token'], 'velocity'))
+        torch.save(torch.tensor(np.array(category), dtype=torch.int64), os.path.join(folder_mapping[i_scene], sample_data['token'], 'category'))
+        torch.save(torch.tensor(np.array(location), dtype=torch.float32), os.path.join(folder_mapping[i_scene], sample_data['token'], 'location'))
+        torch.save(torch.tensor(np.array(bbox), dtype=torch.float32), os.path.join(folder_mapping[i_scene], sample_data['token'], 'bbox'))
+        torch.save(torch.tensor(np.array(velocity), dtype=torch.float32), os.path.join(folder_mapping[i_scene], sample_data['token'], 'velocity'))
 
         sample_token = sample['next']
     return i_scene

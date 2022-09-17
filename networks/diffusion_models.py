@@ -56,7 +56,7 @@ class DiffusionBasedModel(nn.Module):
         self.loss_fn = DiffusionLoss(
             weights_entry={
                 'length': 0.4,
-                'noise': 1
+                'location': 1
             },
             weights_category={
                 'pedestrian': 1,

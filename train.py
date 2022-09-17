@@ -34,7 +34,7 @@ if __name__ == '__main__':
             pedestrians, bicyclists, vehicles, maps = preprocessor(batch)
             loss_dict = model(pedestrians, bicyclists, vehicles, maps)
             for name in ['pedestrian', 'bicyclist', 'vehicle']:
-                for entry in ['length', 'noise']:
+                for entry in ['length', 'location']:
                     loss_dict[name][entry] = loss_dict[name][entry].mean()
                     writer.add_scalar(f'loss/{name}+{entry}', loss_dict[name][entry], iters)
             loss_dict['all'] = loss_dict['all'].mean()

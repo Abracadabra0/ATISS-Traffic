@@ -6,10 +6,12 @@ from .conditional_transformer import TransformerBackbone
 from .feature_extractors import Extractor
 from .utils import get_length_mask
 from .losses import DiffusionLoss
+import math
 
 
-def linear_beta_schedule(timesteps, start=1e-4, end=0.02):
-    return torch.linspace(start, end, timesteps, dtype=torch.float32)
+def sigmas_schedule(timesteps, start=1e-3, end=20):
+    sigmas = torch.linspace(math.log(start), math.log(end), timesteps)
+    return torch.exp(sigmas)
 
 
 class ObjectNumberPredictor(nn.Module):
@@ -37,10 +39,8 @@ class DiffusionBasedModel(nn.Module):
     def __init__(self, time_steps, axes_limit=40):
         super().__init__()
         self.time_steps = time_steps
-        beta = linear_beta_schedule(time_steps)
-        alpha = 1. - beta
-        alpha_bar = torch.cumprod(alpha, dim=0)
-        self.register_buffer('alpha_bar', alpha_bar)
+        sigmas = sigmas_schedule(time_steps)
+        self.register_buffer('sigmas', sigmas)
         self.feature_extractor = nn.ModuleDict({
             'pedestrian': Extractor(8),
             'bicyclist': Extractor(8),
@@ -55,7 +55,7 @@ class DiffusionBasedModel(nn.Module):
         self.axes_limit = axes_limit
         self.loss_fn = DiffusionLoss(
             weights_entry={
-                'length': 0.4,
+                'length': 1,
                 'location': 1
             },
             weights_category={
@@ -65,11 +65,9 @@ class DiffusionBasedModel(nn.Module):
             }
         )
 
-    def perturb(self, x, t):
-        scale = torch.sqrt(self.alpha_bar)[t].to(t.device)  # (B, )
-        std = torch.sqrt(1 - self.alpha_bar)[t].to(t.device)  # (B, )
+    def perturb(self, x, sigmas):
         noise = torch.randn_like(x)
-        perturbed = x * scale[:, None, None] + noise * std[:, None, None]
+        perturbed = x + noise * sigmas[:, None, None]
         return perturbed
 
     def forward(self, pedestrians, bicyclists, vehicles, maps):
@@ -102,23 +100,24 @@ class DiffusionBasedModel(nn.Module):
 
         # predict location noise
         t = torch.randint(0, self.time_steps, (B, ), device=device)
+        sigmas = self.sigmas[t].to(device)
         # perturb data
         inputs = {'pedestrian': pedestrians,
                   'bicyclist': bicyclists,
                   'vehicle': vehicles}
         pos = {}
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            target[field]['location'] = inputs[field]['location']
-            perturbed = self.perturb(inputs[field]['location'], t)
+            perturbed, noise = self.perturb(inputs[field]['location'], sigmas)
+            target[field]['noise'] = noise
             pos[field] = perturbed
         mask = torch.cat([
             get_length_mask(pedestrians['length']),
             get_length_mask(bicyclists['length']),
             get_length_mask(vehicles['length'])
         ], dim=1)
-        result = self.backbone(pos, fmap, t, mask)
+        result = self.backbone(pos, fmap, t, sigmas, mask)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            pred[field]['location'] = result[field]
+            pred[field]['score'] = result[field]
 
         loss_dict = self.loss_fn(pred, target)
         return loss_dict

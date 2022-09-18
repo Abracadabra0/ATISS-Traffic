@@ -34,7 +34,7 @@ if __name__ == '__main__':
             pedestrians, bicyclists, vehicles, maps = preprocessor(batch)
             loss_dict = model(pedestrians, bicyclists, vehicles, maps)
             for name in ['pedestrian', 'bicyclist', 'vehicle']:
-                for entry in ['length', 'location']:
+                for entry in ['length', 'noise']:
                     loss_dict[name][entry] = loss_dict[name][entry].mean()
                     writer.add_scalar(f'loss/{name}+{entry}', loss_dict[name][entry], iters)
             loss_dict['all'] = loss_dict['all'].mean()
@@ -42,7 +42,7 @@ if __name__ == '__main__':
             print(iters, loss_dict['all'].item())
             optimizer.zero_grad()
             loss_dict['all'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
             optimizer.step()
             iters += 1
         #if (epoch + 1) % 50 == 0:

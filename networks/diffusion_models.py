@@ -9,7 +9,7 @@ from .losses import DiffusionLoss
 import math
 
 
-def sigmas_schedule(timesteps, start=1e-3, end=20):
+def sigmas_schedule(timesteps, start=1e-2, end=20):
     sigmas = torch.linspace(math.log(start), math.log(end), timesteps)
     return torch.exp(sigmas)
 
@@ -56,7 +56,7 @@ class DiffusionBasedModel(nn.Module):
         self.loss_fn = DiffusionLoss(
             weights_entry={
                 'length': 1,
-                'location': 1
+                'noise': 1
             },
             weights_category={
                 'pedestrian': 1,
@@ -68,7 +68,7 @@ class DiffusionBasedModel(nn.Module):
     def perturb(self, x, sigmas):
         noise = torch.randn_like(x)
         perturbed = x + noise * sigmas[:, None, None]
-        return perturbed
+        return perturbed, noise
 
     def forward(self, pedestrians, bicyclists, vehicles, maps):
         B = maps.size(0)
@@ -119,7 +119,7 @@ class DiffusionBasedModel(nn.Module):
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
             pred[field]['score'] = result[field]
 
-        loss_dict = self.loss_fn(pred, target)
+        loss_dict = self.loss_fn(pred, target, sigmas)
         return loss_dict
 
     def sample_step(self, x, t, noise):

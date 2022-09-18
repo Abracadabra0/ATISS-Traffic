@@ -122,18 +122,50 @@ class DiffusionBasedModel(nn.Module):
         loss_dict = self.loss_fn(pred, target, sigmas)
         return loss_dict
 
-    def sample_step(self, x, t, noise):
-        x = x - (1 - self.alpha[t]) / torch.sqrt(1 - self.alpha_bar[t]) * noise
-        x = 1 / torch.sqrt(self.alpha[t]) * x
-        if t != 0:
-            x = x + self.posterior_std[t] * torch.randn_like(x)
-        return x
+    def sample_score_model(self, pred, fmap, step_lr=6e-6, n_steps_each=5):
+        fields = ['pedestrian', 'bicyclist', 'vehicle']
+        mask = torch.cat([
+            get_length_mask(pred[field]['length']) for field in fields
+        ], dim=1)
+        device = mask.device
+        B = mask.shape[0]
+        L = sum([pred[field]['length'] for field in fields])
+        x = torch.rand((B, L, 2), device=device)
+        for t in reversed(range(self.time_steps)):
+            t = torch.tensor([t], device=device)
+            sigma = self.sigmas[t].to(device)
+            step_size = step_lr * (sigma / self.sigmas[-1]) ** 2
+            pos = {
+                'pedestrian': x[:, :pred['pedestrian']],
+                'bicyclist': x[:, pred['pedestrian']:pred['pedestrian'] + pred['bicyclist']],
+                'vehicle': x[:, pred['pedestrian'] + pred['bicyclist']:]
+            }
+            for s in range(n_steps_each):
+                grad = self.backbone(pos, fmap, t, sigma, mask)
+                grad = torch.cat(list(grad.values()), dim=1)
+                noise = torch.randn_like(x)
+                grad_norm = torch.norm(grad.view(B, -1), dim=-1).mean()
+                noise_norm = torch.norm(noise.view(B, -1), dim=-1).mean()
+                x = x + step_size * grad + noise * math.sqrt(step_size * 2)
+                pos = {
+                    'pedestrian': x[:, :pred['pedestrian']],
+                    'bicyclist': x[:, pred['pedestrian']:pred['pedestrian'] + pred['bicyclist']],
+                    'vehicle': x[:, pred['pedestrian'] + pred['bicyclist']:]
+                }
+
+                x_norm = torch.norm(x.view(B, -1), dim=-1).mean()
+                snr = math.sqrt(step_size / 2.) * grad_norm / noise_norm
+                grad_mean_norm = torch.norm(grad.mean(dim=0).view(-1)) ** 2 * sigma ** 2
+                print("step: {}, step_size: {}, grad_norm: {}, x_norm: {}, snr: {}, grad_mean_norm: {}".format(
+                    t, step_size, grad_norm.item(), x_norm.item(), snr.item(), grad_mean_norm.item()))
+            for field in fields:
+                pred[field]['location'].append(pos[field])
+        return pred
 
     @torch.no_grad()
     def generate(self, maps):
         B = maps.size(0)
         assert B == 1
-        device = maps.device
         fmap = self.feature_extractor(maps)  # (B, 128, 320, 320)
         pred = {
             'pedestrian': {},
@@ -147,40 +179,8 @@ class DiffusionBasedModel(nn.Module):
         pred['vehicle']['length'] = self.n_vehicle(fmap_avg).sample().item()
         print(pred['pedestrian']['length'], pred['bicyclist']['length'], pred['vehicle']['length'])
 
-        # pedestrian
         pred['pedestrian']['location'] = []
-        location = torch.randn((pred['pedestrian']['length'], 2), device=device)
-        idx = list(range(pred['pedestrian']['length']))
-        idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
-        location = location[idx].unsqueeze(0)
-        mask = get_length_mask(torch.tensor([pred['pedestrian']['length']], device=device))
-        for t in reversed(range(self.time_steps)):
-            t = torch.tensor([t], device=device)
-            noise = self.pedestrian_backbone(location, fmap, t, mask=mask)
-            location = self.sample_step(location, t, noise)
-            pred['pedestrian']['location'].append(location)
-        # bicyclist
         pred['bicyclist']['location'] = []
-        location = torch.randn((pred['bicyclist']['length'], 2), device=device)
-        idx = list(range(pred['bicyclist']['length']))
-        idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
-        location = location[idx].unsqueeze(0)
-        mask = get_length_mask(torch.tensor([pred['bicyclist']['length']], device=device))
-        for t in reversed(range(self.time_steps)):
-            t = torch.tensor([t], device=device)
-            noise = self.bicyclist_backbone(location, fmap, t, mask=mask)
-            location = self.sample_step(location, t, noise)
-            pred['bicyclist']['location'].append(location)
-        # vehicle
         pred['vehicle']['location'] = []
-        location = torch.randn((pred['vehicle']['length'], 2), device=device)
-        idx = list(range(pred['vehicle']['length']))
-        idx.sort(key=lambda x: (-location[x, 1], location[x, 0]))
-        location = location[idx].unsqueeze(0)
-        mask = get_length_mask(torch.tensor([pred['vehicle']['length']], device=device))
-        for t in reversed(range(self.time_steps)):
-            t = torch.tensor([t], device=device)
-            noise = self.vehicle_backbone(location, fmap, t, mask=mask)
-            location = self.sample_step(location, t, noise)
-            pred['vehicle']['location'].append(location)
+        pred = self.sample_score_model(pred, fmap)
         return pred

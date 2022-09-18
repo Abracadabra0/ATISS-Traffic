@@ -55,7 +55,7 @@ class DiffusionBasedModel(nn.Module):
         self.axes_limit = axes_limit
         self.loss_fn = DiffusionLoss(
             weights_entry={
-                'length': 1,
+                'length': 2,
                 'noise': 1
             },
             weights_category={
@@ -68,7 +68,7 @@ class DiffusionBasedModel(nn.Module):
     def perturb(self, x, sigmas):
         noise = torch.randn_like(x)
         perturbed = x + noise * sigmas[:, None, None]
-        return perturbed, noise
+        return perturbed, noise * sigmas[:, None, None]
 
     def forward(self, pedestrians, bicyclists, vehicles, maps):
         B = maps.size(0)

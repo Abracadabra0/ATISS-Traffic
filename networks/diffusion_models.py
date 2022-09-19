@@ -66,9 +66,9 @@ class DiffusionBasedModel(nn.Module):
         )
 
     def perturb(self, x, sigmas):
-        noise = torch.randn_like(x)
-        perturbed = x + noise * sigmas[:, None, None]
-        return perturbed, noise * sigmas[:, None, None]
+        noise = torch.randn_like(x) * sigmas[:, None, None]
+        perturbed = x + noise
+        return perturbed, noise
 
     def forward(self, pedestrians, bicyclists, vehicles, maps):
         B = maps.size(0)
@@ -115,14 +115,14 @@ class DiffusionBasedModel(nn.Module):
             get_length_mask(bicyclists['length']),
             get_length_mask(vehicles['length'])
         ], dim=1)
-        result = self.backbone(pos, fmap, t, sigmas, mask)
+        result = self.backbone(pos, fmap, t / self.time_steps, sigmas, mask)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
             pred[field]['score'] = result[field]
 
         loss_dict = self.loss_fn(pred, target, sigmas)
         return loss_dict
 
-    def sample_score_model(self, pred, fmap, step_lr=6e-6, n_steps_each=5):
+    def sample_score_model(self, pred, fmap, step_lr=1e-5, n_steps_each=5):
         fields = ['pedestrian', 'bicyclist', 'vehicle']
         mask = torch.cat([
             get_length_mask(pred[field]['length']) for field in fields

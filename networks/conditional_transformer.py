@@ -21,9 +21,9 @@ class ConditionalEncoderLayer(nn.Module):
 
         self.time_mlp = nn.Sequential(
             SinusoidalEmb(dim_t_embed, input_dim=1),
-            nn.Linear(dim_t_embed, dim_feedforward * 2),
+            nn.Linear(dim_t_embed, dim_feedforward),
             nn.GELU(),
-            nn.Linear(dim_feedforward * 2, dim_feedforward * 2)
+            nn.Linear(dim_feedforward, dim_feedforward)
         )
 
         self.act = nn.GELU()
@@ -33,11 +33,9 @@ class ConditionalEncoderLayer(nn.Module):
         src = src + self.dropout(src2)
         src = self.norm1(src)  # (B, L, d_model)
         t_embed = self.time_mlp(t)  # (B, dim_feedforward * 2)
-        weight = t_embed[:, :self.dim_feedforward].unsqueeze(1)
-        bias = t_embed[:, self.dim_feedforward:].unsqueeze(1)
         src2 = self.linear1(src)
         src2 = self.dropout(self.act(src2))
-        src2 = weight * src2 + bias
+        src2 = src2 + t_embed
         src = src + self.dropout(self.linear2(src2))
         src = self.norm2(src)
         return src
@@ -81,9 +79,9 @@ class TransformerBackbone(nn.Module):
             'vehicle': get_mlp(dim_pos_embed + dim_category_embed, d_model)
         })
         self.pe = nn.ModuleDict({
-            'pedestrian': TrainablePE(d_model),
-            'bicyclist': TrainablePE(d_model),
-            'vehicle': TrainablePE(d_model)
+            'pedestrian': TrainablePE(d_model, max_len=64),
+            'bicyclist': TrainablePE(d_model, max_len=64),
+            'vehicle': TrainablePE(d_model, max_len=64)
         })
         self.body = ConditionalEncoder(d_model=d_model,
                                        n_layers=n_layers,

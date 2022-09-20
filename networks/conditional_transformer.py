@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn.modules.activation import MultiheadAttention
-from .embeddings import SinusoidalEmb, TrainablePE, TrainablePE2D
+from .embeddings import SinusoidalEmb, TrainablePE
 from .utils import MapIndexLayer, get_mlp
 
 

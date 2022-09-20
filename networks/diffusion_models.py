@@ -123,7 +123,7 @@ class DiffusionBasedModel(nn.Module):
         loss_dict['t'] = t.item()
         return loss_dict
 
-    def sample_score_model(self, pred, fmap, step_lr=2e-7, n_steps_each=5):
+    def sample_score_model(self, pred, fmap, step_lr=2e-7, n_steps_each=50):
         fields = ['pedestrian', 'bicyclist', 'vehicle']
         device = fmap['pedestrian'].device
         mask = torch.cat([
@@ -147,7 +147,7 @@ class DiffusionBasedModel(nn.Module):
                 noise = torch.randn_like(x)
                 grad_norm = torch.norm(grad.view(B, -1), dim=-1).mean()
                 noise_norm = torch.norm(noise.view(B, -1), dim=-1).mean()
-                x = x + step_size * grad
+                x = x + step_size * grad + noise * math.sqrt(step_size * 2)
                 pos = {
                     'pedestrian': x[:, :pred['pedestrian']['length']],
                     'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
@@ -177,9 +177,9 @@ class DiffusionBasedModel(nn.Module):
             'vehicle': {}
         }
         # predict number of objects
-        pred['pedestrian']['length'] = 26
-        pred['bicyclist']['length'] = 0
-        pred['vehicle']['length'] = 0
+        pred['pedestrian']['length'] = self.n_pedestrian(fmap['pedestrian'].mean(dim=(2, 3))).sample().item()
+        pred['bicyclist']['length'] = self.n_bicyclist(fmap['bicyclist'].mean(dim=(2, 3))).sample().item()
+        pred['vehicle']['length'] = self.n_vehicle(fmap['vehicle'].mean(dim=(2, 3))).sample().item()
         print(pred['pedestrian']['length'], pred['bicyclist']['length'], pred['vehicle']['length'])
 
         pred['pedestrian']['location'] = []

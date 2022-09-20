@@ -5,10 +5,17 @@ from torch.utils.data import DataLoader
 from torch.nn import DataParallel
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam
+from torch.optim.lr_scheduler import LambdaLR
 from datasets import NuScenesDataset, DiffusionModelPreprocessor, collate_fn
 from networks import DiffusionBasedModel
 import numpy as np
 import time
+
+
+def lr_func(warmup):
+    def inner(iters):
+        return min((iters + 1) ** -0.5, (iters + 1) * warmup ** -1.5)
+    return inner
 
 
 if __name__ == '__main__':
@@ -23,8 +30,9 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor('cpu').test()
     model = DiffusionBasedModel(time_steps=1000)
     model = DataParallel(model).to(device)
-    optimizer = Adam(model.parameters(), lr=5e-5)
-    n_epochs = 4000
+    optimizer = Adam(model.parameters(), lr=1e-2)
+    scheduler = LambdaLR(optimizer, lr_func(2000))
+    n_epochs = 8000
 
     iters = 0
     hist = np.zeros(1000)
@@ -49,6 +57,7 @@ if __name__ == '__main__':
             loss_dict['all'].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
             optimizer.step()
+            scheduler.step()
             iters += 1
         #if (epoch + 1) % 50 == 0:
             #torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))

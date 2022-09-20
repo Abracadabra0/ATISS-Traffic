@@ -336,10 +336,7 @@ class DiffusionModelPreprocessor:
         }
         for i in range(B):
             for category in [1, 2, 3]:
-                if category == 1:
-                    mask = (batch['category'][i] == category)
-                else:
-                    mask = (batch['category'][i] == -1)
+                mask = (batch['category'][i] == category)
                 name = mapping[category]
                 batch[name]['length'].append(sum(mask).item())
                 batch[name]['location'].append(batch['location'][i][mask])

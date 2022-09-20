@@ -15,7 +15,7 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/09-13-00:37:22'))
+    model.load_state_dict(torch.load('./ckpts/09-19-10:55:23'))
     model.to(device)
     model.eval()
 
@@ -46,8 +46,8 @@ if __name__ == '__main__':
                     loc = pred[name]['location'][step][0, i].cpu().numpy() * axes_limit
                     ax.plot(loc[0], loc[1], 'x', color=color)
                     ax.annotate(str(i), loc)
-            ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
-            ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
+            ax.set_xlim(-10 * axes_limit, 10 * axes_limit)
+            ax.set_ylim(-10 * axes_limit, 10 * axes_limit)
             fig.savefig("./result/test_%03d.png" % step)
             plt.close(fig)
     

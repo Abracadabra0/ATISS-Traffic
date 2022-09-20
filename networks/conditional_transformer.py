@@ -20,7 +20,7 @@ class ConditionalEncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
 
         self.time_mlp = nn.Sequential(
-            SinusoidalEmb(dim_t_embed, input_dim=1),
+            SinusoidalEmb(dim_t_embed, input_dim=1, T_min=1e-3, T_max=10),
             nn.Linear(dim_t_embed, dim_feedforward),
             nn.GELU(),
             nn.Linear(dim_feedforward, dim_feedforward)
@@ -71,12 +71,12 @@ class TransformerBackbone(nn.Module):
                  dim_t_embed=256,
                  dropout=0.1):
         super().__init__()
-        self.pos_embedding = SinusoidalEmb(dim_pos_embed, input_dim=2)
+        self.pos_embedding = SinusoidalEmb(dim_pos_embed, input_dim=2, T_min=1e-3, T_max=1e3)
         self.indexing = MapIndexLayer(axes_limit=40, resolution=0.25)
         self.head = nn.ModuleDict({
-            'pedestrian': get_mlp(dim_pos_embed + dim_category_embed, d_model),
-            'bicyclist': get_mlp(dim_pos_embed + dim_category_embed, d_model),
-            'vehicle': get_mlp(dim_pos_embed + dim_category_embed, d_model)
+            'pedestrian': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model),
+            'bicyclist': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model),
+            'vehicle': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model)
         })
         self.pe = nn.ModuleDict({
             'pedestrian': TrainablePE(d_model, max_len=64),
@@ -108,8 +108,7 @@ class TransformerBackbone(nn.Module):
             pos_embed = self.pos_embedding(pos[field])
             category = torch.ones((B, L), dtype=torch.long).to(map_info.device) * i
             fcategory = self.category_embedding(category)  # (B, L, dim_category_embed)
-            # feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)
-            feature = torch.cat([fcategory, pos_embed], dim=-1)
+            feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)
             feature = self.pe[field](self.head[field](feature))
             x.append(feature)
         x = torch.cat(x, dim=1)

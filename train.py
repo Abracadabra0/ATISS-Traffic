@@ -23,10 +23,12 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor('cpu').test()
     model = DiffusionBasedModel(time_steps=1000)
     model = DataParallel(model).to(device)
-    optimizer = Adam(model.parameters(), lr=1e-4)
+    optimizer = Adam(model.parameters(), lr=5e-5)
     n_epochs = 4000
 
     iters = 0
+    hist = np.zeros(1000)
+    cnt = np.ones(1000)
     print("Running on %d GPUs " % torch.cuda.device_count())
     for epoch in range(n_epochs):
         print(f"------------ Epoch {epoch} ------------")
@@ -40,6 +42,9 @@ if __name__ == '__main__':
             loss_dict['all'] = loss_dict['all'].mean()
             writer.add_scalar('all', loss_dict['all'], iters)
             print(iters, loss_dict['all'].item())
+            t = loss_dict['t']
+            hist[t] += loss_dict['pedestrian']['noise'].item()
+            cnt[t] += 1
             optimizer.zero_grad()
             loss_dict['all'].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
@@ -49,5 +54,8 @@ if __name__ == '__main__':
             #torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))
             #torch.save(optimizer.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'optimizer-{epoch}'))
             
+    hist = hist / cnt
+    for step, y in enumerate(hist):
+        writer.add_scalar('sigma', y, step)
     model.cpu()
     torch.save(model.module.state_dict(), f'./ckpts/{timestamp}')

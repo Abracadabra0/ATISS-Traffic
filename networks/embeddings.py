@@ -79,10 +79,10 @@ class PositionalEncoding(nn.Module):
 
 
 class SinusoidalEmb(nn.Module):
-    def __init__(self, dim, input_dim):
+    def __init__(self, dim, input_dim, T_min, T_max):
         super().__init__()
         self.dim = dim
-        T = torch.linspace(math.log(1e-3), math.log(2), self.dim // input_dim // 2)
+        T = torch.linspace(math.log(T_min), math.log(T_max), self.dim // input_dim // 2)
         T = torch.exp(T)
         self.weights = 2 * math.pi / T
 

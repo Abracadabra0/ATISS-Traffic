@@ -2,7 +2,6 @@ import os
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from torch.nn import DataParallel
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
@@ -26,18 +25,17 @@ if __name__ == '__main__':
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=8, collate_fn=collate_fn)
-    preprocessor = DiffusionModelPreprocessor('cpu').test()
+    dataloader = DataLoader(dataset, batch_size=3, shuffle=True, num_workers=8, collate_fn=collate_fn)
+    preprocessor = DiffusionModelPreprocessor(device).train()
     model = DiffusionBasedModel(time_steps=1000)
-    model = DataParallel(model).to(device)
+    model = model.to(device)
     optimizer = Adam(model.parameters(), lr=1e-2)
     scheduler = LambdaLR(optimizer, lr_func(2000))
-    n_epochs = 8000
+    n_epochs = 400
 
     iters = 0
     hist = np.zeros(1000)
     cnt = np.ones(1000)
-    print("Running on %d GPUs " % torch.cuda.device_count())
     for epoch in range(n_epochs):
         print(f"------------ Epoch {epoch} ------------")
         for batch in dataloader:
@@ -50,8 +48,9 @@ if __name__ == '__main__':
             loss_dict['all'] = loss_dict['all'].mean()
             writer.add_scalar('all', loss_dict['all'], iters)
             print(iters, loss_dict['all'].item())
-            t = loss_dict['t']
-            hist[t] += loss_dict['pedestrian']['noise'].item()
+            for idx, t in enumerate(loss_dict['t']):
+                t = t.item()
+                hist[t] += loss_dict['pedestrian']['noise_all'][idx].item()
             cnt[t] += 1
             optimizer.zero_grad()
             loss_dict['all'].backward()
@@ -59,12 +58,9 @@ if __name__ == '__main__':
             optimizer.step()
             scheduler.step()
             iters += 1
-        #if (epoch + 1) % 50 == 0:
-            #torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))
-            #torch.save(optimizer.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'optimizer-{epoch}'))
             
     hist = hist / cnt
     for step, y in enumerate(hist):
         writer.add_scalar('sigma', y, step)
     model.cpu()
-    torch.save(model.module.state_dict(), f'./ckpts/{timestamp}')
+    torch.save(model.state_dict(), f'./ckpts/{timestamp}')

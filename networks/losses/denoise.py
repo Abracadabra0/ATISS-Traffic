@@ -37,6 +37,7 @@ class DiffusionLoss(nn.Module):
             tgt = -1 / sigmas[:, None, None] ** 2 * target[name]['noise']
             loss = ((pred[name]['score'] - tgt) ** 2).sum(dim=-1)  # (B, L)
             loss = (loss * sigmas[:, None] ** 2 * mask).mean(dim=-1)  # (B, )
+            loss_dict[name]['noise_all'] = torch.where(target[name]['length'] > 0, loss, torch.tensor(0., device=loss.device))
             loss = loss[target[name]['length'] > 0].sum() / B
             loss_dict[name]['noise'] = loss
         # aggregate loss

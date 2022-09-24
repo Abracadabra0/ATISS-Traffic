@@ -5,10 +5,10 @@ import numpy as np
 import os
 import cv2
 from pyquaternion import Quaternion
-from nuscenes.map_expansion.map_api import NuScenesMap
-from nuscenes.map_expansion import arcline_path_utils
-from nuscenes.nuscenes import NuScenes
-from nuscenes.utils.geometry_utils import BoxVisibility
+# from nuscenes.map_expansion.map_api import NuScenesMap
+# from nuscenes.map_expansion import arcline_path_utils
+# from nuscenes.nuscenes import NuScenes
+# from nuscenes.utils.geometry_utils import BoxVisibility
 from .utils import get_homogeneous_matrix, cartesian_to_polar
 from tqdm import tqdm
 from multiprocessing import Pool

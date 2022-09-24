@@ -120,7 +120,7 @@ class DiffusionBasedModel(nn.Module):
             pred[field]['score'] = result[field]
 
         loss_dict = self.loss_fn(pred, target, sigmas)
-        loss_dict['t'] = t.item()
+        loss_dict['t'] = t
         return loss_dict
 
     def sample_score_model(self, pred, fmap, step_lr=2e-7, n_steps_each=50):

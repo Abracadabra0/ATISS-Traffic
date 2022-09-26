@@ -180,19 +180,42 @@ class DiffusionBasedModel(nn.Module):
         loss_dict['t'] = t
         return loss_dict
 
-    def sample_score_model(self, pred, fmap, step_lr=2e-7, n_steps_each=50):
+    def init_pts(self, pred, areas):
+        fields = ['pedestrian', 'bicyclist', 'vehicle']
+        pts = {}
+        for field in fields:
+            if field == 'vehicle':
+                area = areas['drivable_area']
+            else:
+                area = areas['walkable_area']
+            # area: (B, size, size)
+            size = area.shape[1]
+            axes_limit = size // 2
+            L = pred[field]['length']
+            prob = Categorical(probs=area.flatten(1))
+            sampled_pts = prob.sample(torch.tensor([L], device=area.device))  # (L, B)
+            sampled_pts = sampled_pts.permute(1, 0)  # (B, L)
+            row = torch.div(sampled_pts, size, rounding_mode='trunc')
+            col = sampled_pts - row * size
+            x = col / axes_limit - 1
+            y = 1 - row / axes_limit
+            sampled_pts = torch.stack([x, y], dim=-1)
+            pts[field] = sampled_pts  # (B, L, 2)
+        return torch.cat([pts['pedestrian'], pts['bicyclist'], pts['vehicle']], dim=1)
+
+    def sample_score_model(self, pred, maps, fmap, step_lr=2e-7, n_steps_each=10):
         fields = ['pedestrian', 'bicyclist', 'vehicle']
         device = fmap['pedestrian'].device
         mask = torch.cat([
             get_length_mask(torch.tensor([pred[field]['length']], device=device)) for field in fields
         ], dim=1)
         B = mask.shape[0]
-        L = sum([pred[field]['length'] for field in fields])
-        x = torch.rand((B, L, 2), device=device) * 2 - 1
+        areas = {'drivable_area': maps[:, 0], 'walkable_area': (maps[:, 1] + maps[:, 2]).clamp(max=1)}
+        x = self.init_pts(pred, areas)
         for t in reversed(range(self.time_steps)):
-            t = torch.tensor([t], device=device)
-            sigma = self.sigmas[t].to(device)
-            step_size = step_lr * (sigma / self.sigmas[0]) ** 2
+            print(t)
+            sigma = self.diffuse_factors[t]
+            step_size = step_lr * (sigma / self.diffuse_factors[0]) ** 2
             pos = {
                 'pedestrian': x[:, :pred['pedestrian']['length']],
                 'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
@@ -202,8 +225,6 @@ class DiffusionBasedModel(nn.Module):
                 grad = self.backbone(pos, fmap, t, sigma, mask)
                 grad = torch.cat(list(grad.values()), dim=1)
                 noise = torch.randn_like(x)
-                grad_norm = torch.norm(grad.view(B, -1), dim=-1).mean()
-                noise_norm = torch.norm(noise.view(B, -1), dim=-1).mean()
                 x = x + step_size * grad + noise * math.sqrt(step_size * 2)
                 pos = {
                     'pedestrian': x[:, :pred['pedestrian']['length']],
@@ -211,12 +232,6 @@ class DiffusionBasedModel(nn.Module):
                     'vehicle': x[:, pred['pedestrian']['length'] + pred['bicyclist']['length']:]
                 }
 
-                x_norm = torch.norm(x.view(B, -1), dim=-1).mean()
-                snr = math.sqrt(step_size / 2.) * grad_norm / noise_norm
-                grad_mean_norm = torch.norm(grad.mean(dim=0).view(-1)) ** 2 * sigma ** 2
-                print(x[0, 0])
-                print("step: {}, step_size: {}, grad_norm: {}, x_norm: {}, snr: {}, grad_mean_norm: {}".format(
-                    t, step_size, grad_norm.item(), x_norm.item(), snr.item(), grad_mean_norm.item()))
             for field in fields:
                 pred[field]['location'].append(pos[field])
         return pred
@@ -242,5 +257,5 @@ class DiffusionBasedModel(nn.Module):
         pred['pedestrian']['location'] = []
         pred['bicyclist']['location'] = []
         pred['vehicle']['location'] = []
-        pred = self.sample_score_model(pred, fmap)
+        pred = self.sample_score_model(pred, maps, fmap)
         return pred

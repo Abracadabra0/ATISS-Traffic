@@ -109,7 +109,7 @@ class TransformerBackbone(nn.Module):
             category = torch.ones((B, L), dtype=torch.long).to(map_info.device) * i
             fcategory = self.category_embedding(category)  # (B, L, dim_category_embed)
             feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)
-            feature = self.head[field](feature)
+            feature = self.pe[field](self.head[field](feature))
             x.append(feature)
         x = torch.cat(x, dim=1)
         x = self.body(x, t, src_key_padding_mask=mask)

@@ -36,7 +36,7 @@ class DiffusionLoss(nn.Module):
             mask = get_length_mask(target[name]['length'])  # (B, L)
             tgt = -1 / sigmas ** 2 * target[name]['noise']
             loss = ((pred[name]['score'] - tgt) ** 2).sum(dim=-1)  # (B, L)
-            loss = (loss * sigmas[:, None] ** 2 * mask).mean(dim=-1)  # (B, )
+            loss = (loss * sigmas ** 2 * mask).mean(dim=-1)  # (B, )
             loss = loss[target[name]['length'] > 0].sum() / B
             loss_dict[name]['noise'] = loss
         # aggregate loss

@@ -55,14 +55,14 @@ class DiffusionBasedModel(nn.Module):
     @staticmethod
     def diffuse(pts, size, factor):
         y, x = torch.meshgrid(torch.linspace(1, -1, size), torch.linspace(-1, 1, size))
-        x = x[None, None]
-        y = y[None, None]
+        x = x[None, None].to(pts.device)
+        y = y[None, None].to(pts.device)
         pts_x = pts[..., 0][..., None, None]
         pts_y = pts[..., 1][..., None, None]
         prob_x = 1 / factor * torch.exp(-(x - pts_x)**2 / (2 * factor**2))
         prob_y = 1 / factor * torch.exp(-(y - pts_y)**2 / (2 * factor**2))
         prob = prob_x * prob_y
-        prob = prob / prob.sum(dim=(2, 3))  # (B, L, size, size)
+        prob = prob / prob.sum(dim=(2, 3), keepdim=True)  # (B, L, size, size)
         return prob
 
     def __init__(self, time_steps, axes_limit=40):
@@ -102,20 +102,21 @@ class DiffusionBasedModel(nn.Module):
         B = pts.shape[0]
         L = pts.shape[1]
         size = area.shape[1]
+        axes_limit = size // 2
         blur_factor = self.blur_factors[t].item()
-        blurred = self.blur(area, blur_factor)  # (B, 320, 320)
-        diffuse_factor = self.diffuse_factor[t].item()
+        blurred = self.blur(area, blur_factor) + 1e-3  # (B, 320, 320)
+        diffuse_factor = self.diffuse_factors[t].item()
         diffused = self.diffuse(pts, size, diffuse_factor)  # (B, L, 320, 320)
         prob = blurred.unsqueeze(1) * diffused
-        prob = prob / prob.sum(dim=(2, 3))  # (B, L, 320, 320)
+        prob = prob / prob.sum(dim=(2, 3), keepdim=True)  # (B, L, 320, 320)
         # sample from prob
         prob = prob.flatten(0, 1).flatten(1, 2)  # (B * L, 320 * 320)
         prob = Categorical(probs=prob)
         sample = prob.sample()  # (B * L, )
         row = torch.div(sample, size, rounding_mode='trunc')
         col = sample - row * size
-        x = col * 0.25 - 40
-        y = 40 - row * 0.25
+        x = col / axes_limit - 1
+        y = 1 - row / axes_limit
         perturbed = torch.stack([x, y], dim=-1).reshape(B, L, -1)
         noise = perturbed - pts
         return perturbed, noise
@@ -171,11 +172,11 @@ class DiffusionBasedModel(nn.Module):
             get_length_mask(vehicles['length'])
         ], dim=1)
         t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
-        result = self.backbone(pos, fmap, t_normed, self.diffuse_factor[t], mask)
+        result = self.backbone(pos, fmap, t_normed, self.diffuse_factors[t], mask)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
             pred[field]['score'] = result[field]
 
-        loss_dict = self.loss_fn(pred, target, self.diffuse_factor[t])
+        loss_dict = self.loss_fn(pred, target, self.diffuse_factors[t])
         loss_dict['t'] = t
         return loss_dict
 

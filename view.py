@@ -3,6 +3,7 @@ from matplotlib import pyplot as plt
 import torch
 from datasets import NuScenesDataset, collate_fn, AutoregressivePreprocessor
 from torch.utils.data import DataLoader
+from torchvision.transforms import GaussianBlur
 
 
 def to_numpy(data: dict):
@@ -28,10 +29,7 @@ for idx, batch in enumerate(dataloader):
     batch, length, _ = processor(batch, n_keep=-1)
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    lane_mask = batch['map'][0, 8]
-
-    sin = (batch['map'][0, 6] + 1) / 2
-    map_layers = torch.stack([sin] * 3).permute(1, 2, 0)
+    map_layers = batch['map'][0, :3].permute(1, 2, 0) * 0.2
     ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
     for i in range(length.item()):
         if batch['category'][0, i] != 0:
@@ -57,35 +55,5 @@ for idx, batch in enumerate(dataloader):
             ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
     ax.set_xlim([-axes_limit, axes_limit])
     ax.set_ylim([-axes_limit, axes_limit])
-    fig.savefig(f'./result/{idx}(sin).png')
-    plt.close(fig)
-
-    cos = (batch['map'][0, 7] + 1) / 2
-    map_layers = torch.stack([cos] * 3).permute(1, 2, 0)
-    ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
-    for i in range(length.item()):
-        if batch['category'][0, i] != 0:
-            color = cat2color[batch['category'][0, i].item()]
-            loc = batch['location'][0, i].numpy()
-            ax.plot(loc[0], loc[1], 'x', color=color)
-            w, l, theta = batch['bbox'][0, i].numpy()
-            corners = np.array([[0, 0],
-                                [l / 2, 0],
-                                [l / 2, w / 2],
-                                [-l / 2, w / 2],
-                                [-l / 2, -w / 2],
-                                [l / 2, -w / 2],
-                                [l / 2, 0]])
-            rotation = np.array([[np.cos(theta), np.sin(theta)],
-                                 [-np.sin(theta), np.cos(theta)]])
-            corners = np.dot(corners, rotation) + loc
-            ax.plot(corners[:, 0], corners[:, 1], color=color, linewidth=2)
-            speed, omega = batch['velocity'][0, i].numpy()
-            rotation = np.array([[np.cos(omega), np.sin(omega)],
-                                 [-np.sin(omega), np.cos(omega)]])
-            velocity = np.dot(np.array([speed, 0]), rotation)
-            ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
-    ax.set_xlim([-axes_limit, axes_limit])
-    ax.set_ylim([-axes_limit, axes_limit])
-    fig.savefig(f'./result/{idx}(cos).png')
+    fig.savefig(f'./view/{idx}.png')
     plt.close(fig)

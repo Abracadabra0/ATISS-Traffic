@@ -113,7 +113,7 @@ class TransformerBackbone(nn.Module):
             x.append(feature)
         x = torch.cat(x, dim=1)
         x = self.body(x, t, src_key_padding_mask=mask)
-        x = self.tail(x) / sigmas[:, None, None]
+        x = self.tail(x) / sigmas
         return {
             'pedestrian': x[:, :length[0]],
             'bicyclist': x[:, length[0]:length[0] + length[1]],

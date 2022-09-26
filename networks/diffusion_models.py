@@ -2,16 +2,12 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.distributions import Categorical
+import torchvision.transforms.functional as functional
 from .conditional_transformer import TransformerBackbone
 from .feature_extractors import Extractor
 from .utils import get_length_mask
 from .losses import DiffusionLoss
 import math
-
-
-def sigmas_schedule(timesteps, start=1e-2, end=10):
-    sigmas = torch.linspace(math.log(start), math.log(end), timesteps)
-    return torch.exp(sigmas)
 
 
 class ObjectNumberPredictor(nn.Module):
@@ -36,11 +32,46 @@ class ObjectNumberPredictor(nn.Module):
 
 
 class DiffusionBasedModel(nn.Module):
+    @staticmethod
+    def blur_factor_schedule(timesteps, start=1, end=64):
+        factors = torch.linspace(math.log(start), math.log(end), timesteps)
+        return torch.exp(factors)
+
+    @staticmethod
+    def diffuse_factor_schedule(timesteps, start=1e-2, end=10):
+        factors = torch.linspace(math.log(start), math.log(end), timesteps)
+        return torch.exp(factors)
+
+    @staticmethod
+    def blur(img, factor):
+        size = img.shape[-1]
+        new_size = int(size / factor)
+        blurred = functional.resize(img, [new_size, new_size])
+        blurred = functional.gaussian_blur(blurred, [3, 3], [0.5, 0.5])
+        blurred = functional.resize(blurred, [size, size])
+        blurred = functional.gaussian_blur(blurred, [3, 3], [0.5, 0.5])
+        return blurred
+
+    @staticmethod
+    def diffuse(pts, size, factor):
+        y, x = torch.meshgrid(torch.linspace(1, -1, size), torch.linspace(-1, 1, size))
+        x = x[None, None]
+        y = y[None, None]
+        pts_x = pts[..., 0][..., None, None]
+        pts_y = pts[..., 1][..., None, None]
+        prob_x = 1 / factor * torch.exp(-(x - pts_x)**2 / (2 * factor**2))
+        prob_y = 1 / factor * torch.exp(-(y - pts_y)**2 / (2 * factor**2))
+        prob = prob_x * prob_y
+        prob = prob / prob.sum(dim=(2, 3))  # (B, L, size, size)
+        return prob
+
     def __init__(self, time_steps, axes_limit=40):
         super().__init__()
         self.time_steps = time_steps
-        sigmas = sigmas_schedule(time_steps)
-        self.register_buffer('sigmas', sigmas)
+        blur_factors = self.blur_factor_schedule(time_steps)
+        self.register_buffer('blur_factors', blur_factors)
+        diffuse_factors = self.diffuse_factor_schedule(time_steps)
+        self.register_buffer('diffuse_factors', diffuse_factors)
         self.feature_extractor = nn.ModuleDict({
             'pedestrian': Extractor(8),
             'bicyclist': Extractor(8),
@@ -65,9 +96,28 @@ class DiffusionBasedModel(nn.Module):
             }
         )
 
-    def perturb(self, x, sigmas):
-        noise = torch.randn_like(x) * sigmas[:, None, None]
-        perturbed = x + noise
+    def perturb(self, pts, t, area):
+        # pts: (B, L, 2)
+        # area: (B, 320, 320)
+        B = pts.shape[0]
+        L = pts.shape[1]
+        size = area.shape[1]
+        blur_factor = self.blur_factors[t].item()
+        blurred = self.blur(area, blur_factor)  # (B, 320, 320)
+        diffuse_factor = self.diffuse_factor[t].item()
+        diffused = self.diffuse(pts, size, diffuse_factor)  # (B, L, 320, 320)
+        prob = blurred.unsqueeze(1) * diffused
+        prob = prob / prob.sum(dim=(2, 3))  # (B, L, 320, 320)
+        # sample from prob
+        prob = prob.flatten(0, 1).flatten(1, 2)  # (B * L, 320 * 320)
+        prob = Categorical(probs=prob)
+        sample = prob.sample()  # (B * L, )
+        row = torch.div(sample, size, rounding_mode='trunc')
+        col = sample - row * size
+        x = col * 0.25 - 40
+        y = 40 - row * 0.25
+        perturbed = torch.stack([x, y], dim=-1).reshape(B, L, -1)
+        noise = perturbed - pts
         return perturbed, noise
 
     def forward(self, pedestrians, bicyclists, vehicles, maps):
@@ -99,15 +149,20 @@ class DiffusionBasedModel(nn.Module):
         target['vehicle']['length'] = vehicles['length']
 
         # predict location noise
-        t = torch.randint(0, self.time_steps, (B, ), device=device)
-        sigmas = self.sigmas[t].to(device)
+        t = torch.randint(0, self.time_steps, (1, )).item()
         # perturb data
         inputs = {'pedestrian': pedestrians,
                   'bicyclist': bicyclists,
                   'vehicle': vehicles}
         pos = {}
+        drivable_area = maps[:, 0]
+        walkable_area = (maps[:, 1] + maps[:, 2]).clamp(max=1)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            perturbed, noise = self.perturb(inputs[field]['location'], sigmas)
+            if field == 'vehicle':
+                area = drivable_area
+            else:
+                area = walkable_area
+            perturbed, noise = self.perturb(inputs[field]['location'], t, area)
             target[field]['noise'] = noise
             pos[field] = perturbed
         mask = torch.cat([
@@ -115,11 +170,12 @@ class DiffusionBasedModel(nn.Module):
             get_length_mask(bicyclists['length']),
             get_length_mask(vehicles['length'])
         ], dim=1)
-        result = self.backbone(pos, fmap, t / self.time_steps, sigmas, mask)
+        t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
+        result = self.backbone(pos, fmap, t_normed, self.diffuse_factor[t], mask)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
             pred[field]['score'] = result[field]
 
-        loss_dict = self.loss_fn(pred, target, sigmas)
+        loss_dict = self.loss_fn(pred, target, self.diffuse_factor[t])
         loss_dict['t'] = t
         return loss_dict
 

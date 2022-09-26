@@ -24,8 +24,9 @@ if __name__ == '__main__':
     timestamp = time.strftime('%m-%d-%H:%M:%S')
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     os.makedirs('./ckpts', exist_ok=True)
+    B = 1
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
-    dataloader = DataLoader(dataset, batch_size=3, shuffle=True, num_workers=8, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=B, shuffle=True, num_workers=8, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).train()
     model = DiffusionBasedModel(time_steps=1000)
     model = model.to(device)
@@ -48,10 +49,9 @@ if __name__ == '__main__':
             loss_dict['all'] = loss_dict['all'].mean()
             writer.add_scalar('all', loss_dict['all'], iters)
             print(iters, loss_dict['all'].item())
-            for idx, t in enumerate(loss_dict['t']):
-                t = t.item()
-                hist[t] += loss_dict['pedestrian']['noise_all'][idx].item()
-            cnt[t] += 1
+            t = loss_dict['t']
+            hist[t] += loss_dict['pedestrian']['noise'].item()
+            cnt[t] += B
             optimizer.zero_grad()
             loss_dict['all'].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 10)

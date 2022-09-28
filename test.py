@@ -15,7 +15,7 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/09-20-09:28:46'))
+    model.load_state_dict(torch.load('./ckpts/09-26-08:19:31'))
     model.to(device)
     model.eval()
 

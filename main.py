@@ -6,64 +6,63 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
+import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data.distributed import DistributedSampler
 from datasets import NuScenesDataset, AutoregressivePreprocessor, collate_fn
 from networks.autoregressive_transformer import AutoregressiveTransformer
 import numpy as np
 from networks.losses.nll import lr_func
 import time
 
-if __name__ == '__main__':
-    device = torch.device(0)
-    np.random.seed(0)
-    torch.manual_seed(0)
-    timestamp = time.strftime('%m-%d-%H:%M:%S')
-    writer = SummaryWriter(log_dir=f'./log/{timestamp}')
-    os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
+
+os.environ['MASTER_ADDR'] = 'localhost'
+os.environ['MASTER_PORT'] = '5678'
+timestamp = time.strftime('%m-%d-%H:%M:%S')
+writer = SummaryWriter(log_dir=f'./log/{timestamp}')
+os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
+n_gpus = torch.cuda.device_count()
+n_epochs = 30
+batch_size = 12
+
+
+def main(rank, world_size):
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    device = torch.device(rank)
     dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
-    dataloader = DataLoader(dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
+    sampler = DistributedSampler(dataset)
+    dataloader = DataLoader(dataset, batch_size=batch_size // world_size, shuffle=False, collate_fn=collate_fn, sampler=sampler)
     preprocessor = AutoregressivePreprocessor('cpu').train()
-    val_dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/val")
-    val_dataloader = DataLoader(val_dataset, batch_size=72, shuffle=True, num_workers=6, collate_fn=collate_fn)
-    val_preprocessor = AutoregressivePreprocessor('cpu').train()
 
     model = AutoregressiveTransformer()
-    model = DataParallel(model).to(device)
-
+    model = model.to(device)
+    model = DistributedDataParallel(model, device_ids=[rank])
     optimizer = Adam(model.parameters(), lr=1e-3)
     scheduler = LambdaLR(optimizer, lr_func(4000))
 
-    n_epochs = 20
     iters = 0
-    print("Running on %d GPUs " % torch.cuda.device_count())
-
     for epoch in range(n_epochs):
+        sampler.set_epoch(epoch)
         for batch in dataloader:
             batch, lengths, gt = preprocessor(batch, window_size=1)
             loss = model(batch, lengths, gt)
-            for k, v in loss.items():
-                writer.add_scalar(f'loss/{k}', loss[k].mean(), iters)
+            if rank == 0:
+                for k, v in loss.items():
+                    writer.add_scalar(f'loss/{k}', v.mean(), iters)
             optimizer.zero_grad()
             loss['all'].mean().backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
             optimizer.step()
             scheduler.step()
             iters += 1
-        if (epoch + 1) % 2 == 0:
-            model.eval()
-            loss_dict = {k: [] for k in ['all', 'category', 'location', 'wl', 'theta', 'moving', 's', 'omega']}
-            for batch in val_dataloader:
-                batch, lengths, gt = val_preprocessor(batch)
-                with torch.no_grad():
-                    loss = model(batch, lengths, gt)
-                for k, v in loss.items():
-                    loss_dict[k].append(v.mean().item())
-            for k in loss_dict:
-                writer.add_scalar(f'val_loss/{k}', sum(loss_dict[k]) / len(loss_dict[k]), epoch)
-            model.train()
-
+        if rank == 0:
             torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'model-{epoch}'))
             torch.save(optimizer.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'optimizer-{epoch}'))
             torch.save(scheduler.state_dict(), os.path.join(f'./ckpts/{timestamp}', f'scheduler-{epoch}'))
+    if rank == 0:
+        torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', 'final'))
 
-    model.cpu()
-    torch.save(model.module.state_dict(), os.path.join(f'./ckpts/{timestamp}', 'final'))
+
+if __name__ == '__main__':
+    mp.spawn(main, args=(n_gpus,), nprocs=n_gpus, join=True)

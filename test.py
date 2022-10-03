@@ -15,7 +15,7 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/09-26-08:19:31'))
+    model.load_state_dict(torch.load('./ckpts/09-30-08:24:18'))
     model.to(device)
     model.eval()
 
@@ -48,8 +48,9 @@ if __name__ == '__main__':
                     ax.annotate(str(i), loc)
             ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
             ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
-            fig.savefig("./result/test_%03d.png" % step)
+            fig.savefig("./resuslt/test_%03d.png" % step)
             plt.close(fig)
+        break
     
     frame = cv2.imread("./result/test_000.png")
     height, width, layers = frame.shape

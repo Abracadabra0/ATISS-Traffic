@@ -118,7 +118,7 @@ class DiffusionBasedModel(nn.Module):
         col = sample - row * size
         x = col / axes_limit - 1
         y = 1 - row / axes_limit
-        perturbed = torch.stack([x, y], dim=-1).reshape(B, L, -1)
+        perturbed = torch.stack([x, y], dim=-1).reshape(B, L, 2)
         noise = perturbed - pts
         return perturbed, noise
 

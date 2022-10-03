@@ -19,9 +19,6 @@ import time
 
 os.environ['MASTER_ADDR'] = 'localhost'
 os.environ['MASTER_PORT'] = '5678'
-timestamp = time.strftime('%m-%d-%H:%M:%S')
-writer = SummaryWriter(log_dir=f'./log/{timestamp}')
-os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
 n_gpus = torch.cuda.device_count()
 n_epochs = 30
 batch_size = 12
@@ -29,6 +26,10 @@ batch_size = 12
 
 def main(rank, world_size):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    if rank == 0:
+        timestamp = time.strftime('%m-%d-%H:%M:%S')
+        writer = SummaryWriter(log_dir=f'./log/{timestamp}')
+        os.makedirs(f'./ckpts/{timestamp}', exist_ok=True)
     device = torch.device(rank)
     dataset = NuScenesDataset("/shared/perception/datasets/nuScenesProcessed/train")
     sampler = DistributedSampler(dataset)

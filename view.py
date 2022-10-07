@@ -3,7 +3,6 @@ from matplotlib import pyplot as plt
 import torch
 from datasets import NuScenesDataset, collate_fn, AutoregressivePreprocessor
 from torch.utils.data import DataLoader
-from torchvision.transforms import GaussianBlur
 
 
 def to_numpy(data: dict):
@@ -55,5 +54,5 @@ for idx, batch in enumerate(dataloader):
             ax.arrow(loc[0], loc[1], velocity[0] * 5, velocity[1] * 5, color=color, width=0.05)
     ax.set_xlim([-axes_limit, axes_limit])
     ax.set_ylim([-axes_limit, axes_limit])
-    fig.savefig(f'./view/{idx}.png')
+    fig.savefig(f'./view/empty.png')
     plt.close(fig)

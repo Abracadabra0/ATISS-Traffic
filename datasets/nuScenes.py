@@ -5,10 +5,10 @@ import numpy as np
 import os
 import cv2
 from pyquaternion import Quaternion
-# from nuscenes.map_expansion.map_api import NuScenesMap
-# from nuscenes.map_expansion import arcline_path_utils
-# from nuscenes.nuscenes import NuScenes
-# from nuscenes.utils.geometry_utils import BoxVisibility
+from nuscenes.map_expansion.map_api import NuScenesMap
+from nuscenes.map_expansion import arcline_path_utils
+from nuscenes.nuscenes import NuScenes
+from nuscenes.utils.geometry_utils import BoxVisibility
 from .utils import get_homogeneous_matrix, cartesian_to_polar
 from tqdm import tqdm
 from multiprocessing import Pool
@@ -57,9 +57,12 @@ class NuScenesDataset(Dataset):
         os.chdir(output_path)
         os.makedirs('train', exist_ok=True)
         os.makedirs('test', exist_ok=True)
-        train_scenes = 8
+        train_scenes = 5
         i = 0
         for scene in nusc.scene:
+            if scene['token'] in ['325cef682f064c55a255f2625c533b75', 'bebf5f5b2a674631ab5c88fd1aa9e87a',
+                                  'fcbccedd61424f1b85dcbf8f897f9754']:
+                continue
             if i < train_scenes:
                 os.chdir('train')
             else:

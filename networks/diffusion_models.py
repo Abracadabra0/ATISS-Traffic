@@ -46,8 +46,7 @@ class DiffusionBasedModel(nn.Module):
     def blur(img, factor):
         size = img.shape[-1]
         new_size = int(size / factor)
-        blurred = nn.AdaptiveAvgPool2d(new_size)(img)
-        blurred = functional.resize(img, [new_size, new_size])
+        blurred = nn.AdaptiveAvgPool2d(new_size)(img.unsqueeze(1)).squeeze(1)
         blurred = functional.gaussian_blur(blurred, [3, 3], [0.5, 0.5])
         blurred = functional.resize(blurred, [size, size])
         blurred = functional.gaussian_blur(blurred, [3, 3], [0.5, 0.5])

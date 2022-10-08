@@ -10,12 +10,12 @@ import cv2
 
 if __name__ == '__main__':
     device = torch.device(0)
-    dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
+    dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/test")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=4, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/09-30-08:24:18'))
+    model.load_state_dict(torch.load('./ckpts/10-07-07:36:42'))
     model.to(device)
     model.eval()
 
@@ -48,7 +48,7 @@ if __name__ == '__main__':
                     ax.annotate(str(i), loc)
             ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
             ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
-            fig.savefig("./resuslt/test_%03d.png" % step)
+            fig.savefig("./result/test_%03d.png" % step)
             plt.close(fig)
         break
     

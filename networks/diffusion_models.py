@@ -38,7 +38,7 @@ class DiffusionBasedModel(nn.Module):
         return torch.exp(factors)
 
     @staticmethod
-    def diffuse_factor_schedule(timesteps, start=1e-2, end=10):
+    def diffuse_factor_schedule(timesteps, start=1e-2, end=20):
         factors = torch.linspace(math.log(start), math.log(end), timesteps)
         return torch.exp(factors)
 
@@ -86,7 +86,7 @@ class DiffusionBasedModel(nn.Module):
         self.axes_limit = axes_limit
         self.loss_fn = DiffusionLoss(
             weights_entry={
-                'length': 1,
+                'length': 1000,
                 'noise': 1
             },
             weights_category={
@@ -121,7 +121,11 @@ class DiffusionBasedModel(nn.Module):
         noise = perturbed - pts
         return perturbed, noise
 
-    def forward(self, pedestrians, bicyclists, vehicles, maps):
+    def forward(self, batch):
+        maps = batch['map']
+        pedestrians = batch['pedestrian']
+        bicyclists = batch['bicyclist']
+        vehicles = batch['vehicle']
         B = maps.size(0)
         device = maps.device
         for category in [pedestrians, bicyclists, vehicles]:

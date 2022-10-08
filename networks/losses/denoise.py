@@ -1,3 +1,4 @@
+from cmath import isnan
 import torch
 from torch import nn
 
@@ -32,12 +33,13 @@ class DiffusionLoss(nn.Module):
             loss = -pred[name]['length'].log_prob(target[name]['length']).mean()
             loss_dict[name]['length'] = loss
         for name in ['pedestrian', 'bicyclist', 'vehicle']:
-            B = len(target[name]['length'])
             mask = get_length_mask(target[name]['length'])  # (B, L)
             tgt = -1 / sigmas ** 2 * target[name]['noise']
             loss = ((pred[name]['score'] - tgt) ** 2).sum(dim=-1)  # (B, L)
             loss = (loss * sigmas ** 2 * mask).mean(dim=-1)  # (B, )
-            loss = loss[target[name]['length'] > 0].sum() / B
+            loss = loss[target[name]['length'] > 0].mean()
+            if torch.isnan(loss):
+                loss = torch.tensor(0., device=loss.device)
             loss_dict[name]['noise'] = loss
         # aggregate loss
         loss = torch.tensor(0, device=target['pedestrian']['length'].device)

@@ -257,7 +257,7 @@ class DiffusionModelPreprocessor:
             batch[name]['length'] = torch.tensor(batch[name]['length']).to(self.device)
             batch[name]['location'] = batch[name]['location'] / self.axes_limit
         batch['map'] = torch.stack(batch['map'], dim=0)
-        return batch['pedestrian'], batch['bicyclist'], batch['vehicle'], batch['map']
+        return batch
 
     def train_process(self, batch):
         batch = self._random_rotate(batch)

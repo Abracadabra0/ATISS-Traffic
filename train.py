@@ -27,21 +27,21 @@ if __name__ == '__main__':
     B = 4
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=B, shuffle=True, num_workers=8, collate_fn=collate_fn)
-    preprocessor = DiffusionModelPreprocessor(device).train()
+    preprocessor = DiffusionModelPreprocessor(device).test()
     model = DiffusionBasedModel(time_steps=1000)
     model = model.to(device)
-    optimizer = Adam(model.parameters(), lr=1e-3)
+    optimizer = Adam(model.parameters(), lr=1e-2)
     scheduler = LambdaLR(optimizer, lr_func(4000))
     n_epochs = 400
 
     iters = 0
-    hist = np.zeros(1000)
-    cnt = np.ones(1000)
+    hist = {name: np.zeros(100) for name in ['pedestrian', 'bicyclist', 'vehicle']}
+    cnt = {name: np.ones(100) for name in ['pedestrian', 'bicyclist', 'vehicle']}
     for epoch in range(n_epochs):
         print(f"------------ Epoch {epoch} ------------")
         for batch in dataloader:
-            pedestrians, bicyclists, vehicles, maps = preprocessor(batch)
-            loss_dict = model(pedestrians, bicyclists, vehicles, maps)
+            batch = preprocessor(batch)
+            loss_dict = model(batch)
             for name in ['pedestrian', 'bicyclist', 'vehicle']:
                 for entry in ['length', 'noise']:
                     loss_dict[name][entry] = loss_dict[name][entry].mean()
@@ -49,18 +49,21 @@ if __name__ == '__main__':
             loss_dict['all'] = loss_dict['all'].mean()
             writer.add_scalar('all', loss_dict['all'], iters)
             print(iters, loss_dict['all'].item())
-            t = loss_dict['t']
-            hist[t] += loss_dict['pedestrian']['noise'].item()
-            cnt[t] += B
+            t = loss_dict['t'] // 10
+            for name in ['pedestrian', 'bicyclist', 'vehicle']:
+                n = torch.sum(batch[name]['length'] > 0).item()
+                hist[name][t] += loss_dict[name]['noise'].item() * n
+                cnt[name][t] += n
             optimizer.zero_grad()
             loss_dict['all'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 2)
             optimizer.step()
             scheduler.step()
             iters += 1
             
-    hist = hist / cnt
-    for step, y in enumerate(hist):
-        writer.add_scalar('sigma', y, step)
+    for name in ['pedestrian', 'bicyclist', 'vehicle']:
+        hist[name] = hist[name] / cnt[name]
+        for step, y in enumerate(hist[name]):
+            writer.add_scalar(f'distribution/{name}', y, step)
     model.cpu()
     torch.save(model.state_dict(), f'./ckpts/{timestamp}')

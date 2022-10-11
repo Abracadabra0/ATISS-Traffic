@@ -86,7 +86,7 @@ class DiffusionBasedModel(nn.Module):
         self.axes_limit = axes_limit
         self.loss_fn = DiffusionLoss(
             weights_entry={
-                'length': 1000,
+                'length': 1,
                 'noise': 1
             },
             weights_category={

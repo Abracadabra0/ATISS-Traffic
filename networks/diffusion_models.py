@@ -14,16 +14,13 @@ class ObjectNumberPredictor(nn.Module):
     def __init__(self, dim_feature, dim_hidden=128, max=63):
         super().__init__()
         self.model = nn.Sequential(
-            nn.Linear(dim_feature, dim_hidden),
-            nn.LayerNorm(dim_hidden),
+            nn.Linear(dim_feature, dim_hidden // 2),
+            nn.LayerNorm(dim_hidden // 2),
             nn.ReLU(),
-            nn.Linear(dim_hidden, dim_hidden),
-            nn.LayerNorm(dim_hidden),
+            nn.Linear(dim_hidden // 2, dim_hidden // 4),
+            nn.LayerNorm(dim_hidden // 4),
             nn.ReLU(),
-            nn.Linear(dim_hidden, dim_hidden),
-            nn.LayerNorm(dim_hidden),
-            nn.ReLU(),
-            nn.Linear(dim_hidden, max + 1)
+            nn.Linear(dim_hidden // 4, max + 1)
         )
 
     def forward(self, fmap):
@@ -72,15 +69,11 @@ class DiffusionBasedModel(nn.Module):
         self.register_buffer('blur_factors', blur_factors)
         diffuse_factors = self.diffuse_factor_schedule(time_steps)
         self.register_buffer('diffuse_factors', diffuse_factors)
-        self.feature_extractor = nn.ModuleDict({
-            'pedestrian': Extractor(8),
-            'bicyclist': Extractor(8),
-            'vehicle': Extractor(8)
-        })
+        self.feature_extractor = Extractor(8)
 
-        self.n_pedestrian = ObjectNumberPredictor(128)
-        self.n_bicyclist = ObjectNumberPredictor(128)
-        self.n_vehicle = ObjectNumberPredictor(128)
+        self.n_pedestrian = ObjectNumberPredictor(512)
+        self.n_bicyclist = ObjectNumberPredictor(512)
+        self.n_vehicle = ObjectNumberPredictor(512)
         self.backbone = TransformerBackbone()
 
         self.axes_limit = axes_limit
@@ -128,13 +121,7 @@ class DiffusionBasedModel(nn.Module):
         vehicles = batch['vehicle']
         B = maps.size(0)
         device = maps.device
-        for category in [pedestrians, bicyclists, vehicles]:
-            L = category['length'].max().item()
-            for field in ['location', 'bbox', 'velocity']:
-                category[field] = category[field][:, :L]
-        fmap = {}  # (B, 128, 320, 320)
-        for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            fmap[field] = self.feature_extractor[field](maps)
+        fmap = self.feature_extractor(maps)  # (B, 512, 320, 320)
         pred = {
             'pedestrian': {},
             'bicyclist': {},
@@ -146,9 +133,10 @@ class DiffusionBasedModel(nn.Module):
             'vehicle': {}
         }
         # predict number of objects
-        pred['pedestrian']['length'] = self.n_pedestrian(fmap['pedestrian'].mean(dim=(2, 3)))
-        pred['bicyclist']['length'] = self.n_bicyclist(fmap['bicyclist'].mean(dim=(2, 3)))
-        pred['vehicle']['length'] = self.n_vehicle(fmap['vehicle'].mean(dim=(2, 3)))
+        avg = fmap.mean(dim=(2, 3))
+        pred['pedestrian']['length'] = self.n_pedestrian(avg)
+        pred['bicyclist']['length'] = self.n_bicyclist(avg)
+        pred['vehicle']['length'] = self.n_vehicle(avg)
         target['pedestrian']['length'] = pedestrians['length']
         target['bicyclist']['length'] = bicyclists['length']
         target['vehicle']['length'] = vehicles['length']

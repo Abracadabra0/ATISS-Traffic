@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn.modules.activation import MultiheadAttention
 from .embeddings import SinusoidalEmb, TrainablePE
-from .utils import MapIndexLayer, get_mlp
+from .utils import TrainableIndexLayer, get_mlp
 
 
 class ConditionalEncoderLayer(nn.Module):
@@ -72,7 +72,7 @@ class TransformerBackbone(nn.Module):
                  dropout=0.1):
         super().__init__()
         self.pos_embedding = SinusoidalEmb(dim_pos_embed, input_dim=2, T_min=1e-3, T_max=1e3)
-        self.indexing = MapIndexLayer(axes_limit=40, resolution=0.25)
+        self.indexing = TrainableIndexLayer()
         self.head = nn.ModuleDict({
             'pedestrian': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model),
             'bicyclist': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model),
@@ -96,6 +96,18 @@ class TransformerBackbone(nn.Module):
             nn.Linear(d_model, 2),
         )
         self.category_embedding = nn.Embedding(3, dim_category_embed)
+        self.time_mlp = nn.Sequential(
+            SinusoidalEmb(dim_t_embed, input_dim=1, T_min=1e-3, T_max=10),
+            nn.Linear(dim_t_embed, dim_t_embed),
+            nn.GELU(),
+            nn.Linear(dim_t_embed, dim_t_embed)
+        )
+        self.weight_mlp = nn.Sequential(
+            nn.Linear(dim_pos_embed + dim_category_embed + dim_t_embed, d_model),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
+        )
 
     def forward(self, pos, fmap, t, sigmas, mask=None):
         # pos: (B, L, 2)
@@ -104,10 +116,13 @@ class TransformerBackbone(nn.Module):
         for i, field in enumerate(['pedestrian', 'bicyclist', 'vehicle']):
             B, L, *_ = pos[field].shape
             length.append(L)
-            map_info = self.indexing(fmap[field], pos[field])
             pos_embed = self.pos_embedding(pos[field])
-            category = torch.ones((B, L), dtype=torch.long).to(map_info.device) * i
+            category = torch.ones((B, L), dtype=torch.long).to(fmap.device) * i
             fcategory = self.category_embedding(category)  # (B, L, dim_category_embed)
+            t_embed = self.time_mlp(t).unsqueeze(1).repeat(1, L, 1)
+            weight_f = self.weight_mlp(torch.cat([fcategory, pos_embed, t_embed], dim=-1))
+            weight = self.indexing(weight_f)
+            map_info = (weight * fmap.unsqueeze(1)).mean(dim=(3, 4))  # (B, L, C)
             feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)
             feature = self.pe[field](self.head[field](feature))
             x.append(feature)

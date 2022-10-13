@@ -44,3 +44,40 @@ class MapIndexLayer(nn.Module):
         fmap = fmap.flatten(2, 3).permute(0, 2, 1)  # (B, wl * wl, C)
         indexed = fmap.gather(dim=1, index=idx)  # (B, L, C)
         return indexed
+
+
+class TrainableIndexLayer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.body = nn.Sequential(
+            nn.ConvTranspose2d(768, 384, kernel_size=2),
+            nn.ReLU(),
+            nn.ConvTranspose2d(384, 192, kernel_size=3),
+            nn.ReLU(),
+            nn.ConvTranspose2d(192, 96, kernel_size=2, stride=2),
+            nn.LayerNorm([96, 8, 8]),
+            nn.ReLU(),
+            nn.ConvTranspose2d(96, 48, kernel_size=2, stride=2),
+            nn.LayerNorm([48, 16, 16]),
+            nn.ReLU(),
+            nn.ConvTranspose2d(48, 24, kernel_size=2, stride=2),
+            nn.LayerNorm([24, 32, 32]),
+            nn.ReLU(),
+            nn.ConvTranspose2d(24, 12, kernel_size=2, stride=2),
+            nn.LayerNorm([12, 64, 64]),
+            nn.ReLU(),
+            nn.ConvTranspose2d(12, 1, kernel_size=5, stride=5),
+        )
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, f):
+        # f: (B, L, 768)
+        B = f.shape[0]
+        L = f.shape[1]
+        f = f[..., None, None]  # (B, L, 768, 1, 1)
+        f = f.flatten(0, 1)  # (B * L, 768, 1, 1)
+        weight = self.body(f)  # (B * L, 1, 320, 320)
+        weight = weight.reshape(B * L, 320 * 320)
+        weight = self.softmax(weight)
+        weight = weight.reshape(B, L, 1, 320, 320)
+        return weight

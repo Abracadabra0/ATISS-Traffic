@@ -64,7 +64,7 @@ class TransformerBackbone(nn.Module):
                  d_model=768,
                  n_layers=6,
                  dim_pos_embed=256,
-                 dim_map_embed=128,
+                 dim_map_embed=256,
                  dim_category_embed=128,
                  nhead=12,
                  dim_feedforward=1024,

@@ -71,9 +71,9 @@ class DiffusionBasedModel(nn.Module):
         self.register_buffer('diffuse_factors', diffuse_factors)
         self.feature_extractor = Extractor(8)
 
-        self.n_pedestrian = ObjectNumberPredictor(512)
-        self.n_bicyclist = ObjectNumberPredictor(512)
-        self.n_vehicle = ObjectNumberPredictor(512)
+        self.n_pedestrian = ObjectNumberPredictor(256)
+        self.n_bicyclist = ObjectNumberPredictor(256)
+        self.n_vehicle = ObjectNumberPredictor(256)
         self.backbone = TransformerBackbone()
 
         self.axes_limit = axes_limit

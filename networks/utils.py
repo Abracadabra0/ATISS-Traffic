@@ -50,23 +50,20 @@ class TrainableIndexLayer(nn.Module):
     def __init__(self):
         super().__init__()
         self.body = nn.Sequential(
-            nn.ConvTranspose2d(768, 384, kernel_size=2),
+            nn.ConvTranspose2d(256, 128, kernel_size=2),
             nn.ReLU(),
-            nn.ConvTranspose2d(384, 192, kernel_size=3),
+            nn.ConvTranspose2d(128, 64, kernel_size=3),
             nn.ReLU(),
-            nn.ConvTranspose2d(192, 96, kernel_size=2, stride=2),
-            nn.LayerNorm([96, 8, 8]),
+            nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2),
+            nn.LayerNorm([32, 8, 8]),
             nn.ReLU(),
-            nn.ConvTranspose2d(96, 48, kernel_size=2, stride=2),
-            nn.LayerNorm([48, 16, 16]),
+            nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2),
+            nn.LayerNorm([16, 16, 16]),
             nn.ReLU(),
-            nn.ConvTranspose2d(48, 24, kernel_size=2, stride=2),
-            nn.LayerNorm([24, 32, 32]),
+            nn.ConvTranspose2d(16, 8, kernel_size=2, stride=2),
+            nn.LayerNorm([8, 32, 32]),
             nn.ReLU(),
-            nn.ConvTranspose2d(24, 12, kernel_size=2, stride=2),
-            nn.LayerNorm([12, 64, 64]),
-            nn.ReLU(),
-            nn.ConvTranspose2d(12, 1, kernel_size=5, stride=5),
+            nn.ConvTranspose2d(8, 1, kernel_size=2, stride=2),
         )
         self.softmax = nn.Softmax(dim=1)
 
@@ -74,10 +71,10 @@ class TrainableIndexLayer(nn.Module):
         # f: (B, L, 768)
         B = f.shape[0]
         L = f.shape[1]
-        f = f[..., None, None]  # (B, L, 768, 1, 1)
-        f = f.flatten(0, 1)  # (B * L, 768, 1, 1)
-        weight = self.body(f)  # (B * L, 1, 320, 320)
-        weight = weight.reshape(B * L, 320 * 320)
+        f = f[..., None, None]  # (B, L, 256, 1, 1)
+        f = f.flatten(0, 1)  # (B * L, 256, 1, 1)
+        weight = self.body(f)  # (B * L, 1, 64, 64)
+        weight = weight.reshape(B * L, 64 * 64)
         weight = self.softmax(weight)
-        weight = weight.reshape(B, L, 1, 320, 320)
+        weight = weight.reshape(B, L, 1, 64, 64)
         return weight

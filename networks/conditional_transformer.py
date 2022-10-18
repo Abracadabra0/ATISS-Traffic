@@ -103,10 +103,10 @@ class TransformerBackbone(nn.Module):
             nn.Linear(dim_t_embed, dim_t_embed)
         )
         self.weight_mlp = nn.Sequential(
-            nn.Linear(dim_pos_embed + dim_category_embed + dim_t_embed, d_model),
-            nn.LayerNorm(d_model),
+            nn.Linear(dim_pos_embed + dim_category_embed + dim_t_embed, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
-            nn.Linear(d_model, d_model)
+            nn.Linear(256, 256)
         )
 
     def forward(self, pos, fmap, t, sigmas, mask=None):
@@ -121,7 +121,7 @@ class TransformerBackbone(nn.Module):
             fcategory = self.category_embedding(category)  # (B, L, dim_category_embed)
             t_embed = self.time_mlp(t).unsqueeze(1).repeat(1, L, 1)
             weight_f = self.weight_mlp(torch.cat([fcategory, pos_embed, t_embed], dim=-1))
-            weight = self.indexing(weight_f)
+            weight = self.indexing(weight_f)  # (B, L, 1, 64, 64)
             map_info = (weight * fmap.unsqueeze(1)).mean(dim=(3, 4))  # (B, L, C)
             feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)
             feature = self.pe[field](self.head[field](feature))

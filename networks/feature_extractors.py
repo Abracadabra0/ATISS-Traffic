@@ -38,10 +38,10 @@ class Extractor(nn.Module):
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(320)
+            nn.AdaptiveAvgPool2d(64)
         )
 
     def forward(self, x):
         # x: (B, input_channels, 320, 320)
-        f = self.body(x)  # (B, 256, 320, 320)
+        f = self.body(x)  # (B, 256, 64, 64)
         return f

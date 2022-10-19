@@ -97,7 +97,7 @@ class TransformerBackbone(nn.Module):
         )
         self.category_embedding = nn.Embedding(3, dim_category_embed)
         self.time_mlp = nn.Sequential(
-            SinusoidalEmb(dim_t_embed, input_dim=1, T_min=1e-3, T_max=10),
+            SinusoidalEmb(dim_t_embed, input_dim=1, T_min=1e-4, T_max=10),
             nn.Linear(dim_t_embed, dim_t_embed),
             nn.GELU(),
             nn.Linear(dim_t_embed, dim_t_embed)
@@ -108,10 +108,12 @@ class TransformerBackbone(nn.Module):
             nn.ReLU(),
             nn.Linear(256, 256)
         )
+        self.empty_token = nn.Parameter(torch.randn(d_model))
 
     def forward(self, pos, fmap, t, sigmas, mask=None):
         # pos: (B, L, 2)
-        x = []
+        B = fmap.shape[0]
+        x = [self.empty_token.reshape(1, 1, -1).repeat(B, 1, 1)]
         length = []
         for i, field in enumerate(['pedestrian', 'bicyclist', 'vehicle']):
             B, L, *_ = pos[field].shape
@@ -121,13 +123,16 @@ class TransformerBackbone(nn.Module):
             fcategory = self.category_embedding(category)  # (B, L, dim_category_embed)
             t_embed = self.time_mlp(t).unsqueeze(1).repeat(1, L, 1)
             weight_f = self.weight_mlp(torch.cat([fcategory, pos_embed, t_embed], dim=-1))
-            weight = self.indexing(weight_f)  # (B, L, 1, 64, 64)
+            weight = self.indexing(weight_f)  # (B, L, 1, 80, 80)
             map_info = (weight * fmap.unsqueeze(1)).mean(dim=(3, 4))  # (B, L, C)
             feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)
             feature = self.pe[field](self.head[field](feature))
             x.append(feature)
-        x = torch.cat(x, dim=1)
+        x = torch.cat(x, dim=1)  # (B, L + 1, d_model)
+        pad = torch.zeros(B, 1).to(x.device)
+        mask = torch.cat([pad, mask], dim=1)
         x = self.body(x, t, src_key_padding_mask=mask)
+        x = x[:, 1:]
         x = self.tail(x) / sigmas
         return {
             'pedestrian': x[:, :length[0]],

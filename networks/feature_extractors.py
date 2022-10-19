@@ -29,7 +29,7 @@ class Extractor(nn.Module):
     def __init__(self, input_channels):
         super().__init__()
         self.body = nn.Sequential(
-            nn.Conv2d(in_channels=input_channels, out_channels=128, kernel_size=(5, 5), stride=(2, 2), padding=(3, 3)),
+            nn.Conv2d(in_channels=input_channels, out_channels=128, kernel_size=(5, 5), stride=(2, 2), padding=(2, 2)),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),

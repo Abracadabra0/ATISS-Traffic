@@ -52,7 +52,7 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         x = x + self.pe[:, :x.size(1)]
-        return self.dropout(x)
+        return x
 
 
 class SinusoidalEmb(nn.Module):

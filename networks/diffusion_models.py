@@ -121,7 +121,7 @@ class DiffusionBasedModel(nn.Module):
         vehicles = batch['vehicle']
         B = maps.size(0)
         device = maps.device
-        fmap = self.feature_extractor(maps)  # (B, 512, 320, 320)
+        fmap, avg = self.feature_extractor(maps)  # (B, 512, 320, 320)
         pred = {
             'pedestrian': {},
             'bicyclist': {},
@@ -133,7 +133,6 @@ class DiffusionBasedModel(nn.Module):
             'vehicle': {}
         }
         # predict number of objects
-        avg = fmap.mean(dim=(2, 3))
         pred['pedestrian']['length'] = self.n_pedestrian(avg)
         pred['bicyclist']['length'] = self.n_bicyclist(avg)
         pred['vehicle']['length'] = self.n_vehicle(avg)
@@ -179,8 +178,11 @@ class DiffusionBasedModel(nn.Module):
         return (torch.rand(B, L, 2) * 2 - 1).to(device)
 
     def sample_score_model(self, pred, maps, fmap):
+        from tqdm import tqdm
+        import warnings
+        warnings.filterwarnings("ignore")
         fields = ['pedestrian', 'bicyclist', 'vehicle']
-        device = fmap['pedestrian'].device
+        device = fmap.device
         mask = torch.cat([
             get_length_mask(torch.tensor([pred[field]['length']], device=device)) for field in fields
         ], dim=1)
@@ -195,8 +197,7 @@ class DiffusionBasedModel(nn.Module):
             'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
             'vehicle': x[:, pred['pedestrian']['length'] + pred['bicyclist']['length']:]
         }
-        for t in reversed(range(self.time_steps)):
-            print(t)
+        for t in tqdm(reversed(range(self.time_steps))):
             sigma = self.diffuse_factors[t]
             t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
             grad = self.backbone(pos, fmap, t_normed, sigma, mask)
@@ -220,21 +221,24 @@ class DiffusionBasedModel(nn.Module):
         return pred
 
     @torch.no_grad()
-    def generate(self, maps):
+    def generate(self, maps, lengths=None):
         B = maps.size(0)
         assert B == 1
-        fmap = {}  # (B, 128, 320, 320)
-        for field in ['pedestrian', 'bicyclist', 'vehicle']:
-            fmap[field] = self.feature_extractor[field](maps)
+        fmap, avg = self.feature_extractor(maps)  # (B, 512, 320, 320)
         pred = {
             'pedestrian': {},
             'bicyclist': {},
             'vehicle': {}
         }
         # predict number of objects
-        pred['pedestrian']['length'] = self.n_pedestrian(fmap['pedestrian'].mean(dim=(2, 3))).sample().item()
-        pred['bicyclist']['length'] = self.n_bicyclist(fmap['bicyclist'].mean(dim=(2, 3))).sample().item()
-        pred['vehicle']['length'] = self.n_vehicle(fmap['vehicle'].mean(dim=(2, 3))).sample().item()
+        if lengths is None:
+            pred['pedestrian']['length'] = self.n_pedestrian(avg).sample().item()
+            pred['bicyclist']['length'] = self.n_bicyclist(avg).sample().item()
+            pred['vehicle']['length'] = self.n_vehicle(avg).sample().item()
+        else:
+            pred['pedestrian']['length'] = lengths[0]
+            pred['bicyclist']['length'] = lengths[1]
+            pred['vehicle']['length'] = lengths[2]
         print(pred['pedestrian']['length'], pred['bicyclist']['length'], pred['vehicle']['length'])
 
         pred['pedestrian']['location'] = []

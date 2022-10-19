@@ -1,12 +1,12 @@
 import torch
 from torch import nn
 from torch.nn.modules.activation import MultiheadAttention
-from .embeddings import SinusoidalEmb, TrainablePE
+from .embeddings import SinusoidalEmb, PositionalEncoding
 from .utils import TrainableIndexLayer, get_mlp
 
 
 class ConditionalEncoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward=1024, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.dim_feedforward = dim_feedforward
@@ -42,7 +42,7 @@ class ConditionalEncoderLayer(nn.Module):
 
 
 class ConditionalEncoder(nn.Module):
-    def __init__(self, d_model, n_layers, nhead=12, dim_feedforward=1024, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, n_layers, nhead=12, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.layers = nn.ModuleList([
@@ -67,21 +67,25 @@ class TransformerBackbone(nn.Module):
                  dim_map_embed=256,
                  dim_category_embed=128,
                  nhead=12,
-                 dim_feedforward=1024,
+                 dim_feedforward=2048,
                  dim_t_embed=256,
                  dropout=0.1):
         super().__init__()
         self.pos_embedding = SinusoidalEmb(dim_pos_embed, input_dim=2, T_min=1e-3, T_max=1e3)
         self.indexing = TrainableIndexLayer()
-        self.head = nn.ModuleDict({
-            'pedestrian': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model),
-            'bicyclist': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model),
-            'vehicle': get_mlp(dim_pos_embed + dim_category_embed + dim_map_embed, d_model)
-        })
+        self.head = nn.Sequential(
+            nn.Linear(dim_pos_embed + dim_category_embed + dim_map_embed, d_model),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
+        )
         self.pe = nn.ModuleDict({
-            'pedestrian': TrainablePE(d_model, max_len=64),
-            'bicyclist': TrainablePE(d_model, max_len=64),
-            'vehicle': TrainablePE(d_model, max_len=64)
+            'pedestrian': PositionalEncoding(d_model, max_len=64),
+            'bicyclist': PositionalEncoding(d_model, max_len=64),
+            'vehicle': PositionalEncoding(d_model, max_len=64)
         })
         self.body = ConditionalEncoder(d_model=d_model,
                                        n_layers=n_layers,
@@ -126,7 +130,7 @@ class TransformerBackbone(nn.Module):
             weight = self.indexing(weight_f)  # (B, L, 1, 80, 80)
             map_info = (weight * fmap.unsqueeze(1)).mean(dim=(3, 4))  # (B, L, C)
             feature = torch.cat([fcategory, pos_embed, map_info], dim=-1)
-            feature = self.pe[field](self.head[field](feature))
+            feature = self.pe[field](self.head(feature))
             x.append(feature)
         x = torch.cat(x, dim=1)  # (B, L + 1, d_model)
         pad = torch.zeros(B, 1).to(x.device)

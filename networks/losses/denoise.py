@@ -34,9 +34,9 @@ class DiffusionLoss(nn.Module):
             loss_dict[name]['length'] = loss
         for name in ['pedestrian', 'bicyclist', 'vehicle']:
             mask = get_length_mask(target[name]['length'])  # (B, L)
-            tgt = -1 / sigmas ** 2 * target[name]['noise']
+            tgt = target[name]['gt']
             loss = ((pred[name]['score'] - tgt) ** 2).sum(dim=-1)  # (B, L)
-            loss = (loss * sigmas ** 2 * mask).mean(dim=-1)  # (B, )
+            loss = (loss * mask).mean(dim=-1)  # (B, )
             loss = loss[target[name]['length'] > 0].mean()
             if torch.isnan(loss):
                 loss = torch.tensor(0., device=loss.device)
@@ -44,7 +44,7 @@ class DiffusionLoss(nn.Module):
         # aggregate loss
         loss = torch.tensor(0, device=target['pedestrian']['length'].device)
         for category in ['pedestrian', 'bicyclist', 'vehicle']:
-            for entry in ['length', 'noise']:
+            for entry in ['length', 'gt']:
                 loss = loss + loss_dict[category][entry] * self.weights_category[category] * self.weights_entry[entry]
         loss_dict['all'] = loss
         return loss_dict

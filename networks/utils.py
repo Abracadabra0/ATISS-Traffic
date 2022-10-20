@@ -24,21 +24,19 @@ def get_length_mask(lengths):
 
 
 class MapIndexLayer(nn.Module):
-    def __init__(self, axes_limit=40, resolution=0.25, n_feature=128):
+    def __init__(self, wl):
         super().__init__()
-        self.axes_limit = axes_limit
-        self.resolution = resolution
-        self.wl = int(self.axes_limit * 2 / self.resolution)
+        self.wl = wl
 
     def forward(self, fmap, loc):
         # fmap: (B, C, wl, wl)
         # loc: (B, L, 2)
         C = fmap.size(1)
-        loc = loc.clamp(min=-0.999, max=0.999)
-        x = loc[..., 0] * self.axes_limit
-        y = loc[..., 1] * self.axes_limit
-        row = ((self.axes_limit - y) / self.resolution).long()
-        col = ((self.axes_limit + x) / self.resolution).long()
+        loc = loc.clamp(min=-0.9999, max=0.9999)
+        x = loc[..., 0]
+        y = loc[..., 1]
+        row = ((1 - y) * self.wl / 2).long()
+        col = ((x - 1) * self.wl / 2).long()
         idx = row * self.wl + col  # (B, L)
         idx = idx[..., None].repeat(1, 1, C)  # (B, L, C)
         fmap = fmap.flatten(2, 3).permute(0, 2, 1)  # (B, wl * wl, C)

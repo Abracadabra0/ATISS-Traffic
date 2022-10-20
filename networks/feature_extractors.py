@@ -35,13 +35,12 @@ class Extractor(nn.Module):
             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.BatchNorm2d(256),
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
         )
-        self.avg_pooling = nn.AdaptiveAvgPool2d(64)
         self.large = nn.Sequential(
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.Conv2d(in_channels=512, out_channels=256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
@@ -55,8 +54,8 @@ class Extractor(nn.Module):
 
     def forward(self, x):
         # x: (B, input_channels, 320, 320)
-        h = self.small(x)  # (B, 256, 64, 64)
-        f_small = self.avg_pooling(h)
+        h = self.small(x)  # (B, 512, 40, 40)
+        f_small = h
         h = self.large(h)
-        f_large = h.flatten(1)
+        f_large = h.flatten(1)  # (B, 512)
         return f_small, f_large

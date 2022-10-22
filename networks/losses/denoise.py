@@ -44,7 +44,7 @@ class DiffusionLoss(nn.Module):
         # aggregate loss
         loss = torch.tensor(0, device=target['pedestrian']['length'].device)
         for category in ['pedestrian', 'bicyclist', 'vehicle']:
-            for entry in ['length', 'gt']:
+            for entry in ['length', 'noise']:
                 loss = loss + loss_dict[category][entry] * self.weights_category[category] * self.weights_entry[entry]
         loss_dict['all'] = loss
         return loss_dict

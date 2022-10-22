@@ -198,16 +198,17 @@ class DiffusionBasedModel(nn.Module):
             'vehicle': x[:, pred['pedestrian']['length'] + pred['bicyclist']['length']:]
         }
         for t in tqdm(reversed(range(self.time_steps))):
-            sigma = self.diffuse_factors[t]
             t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
-            grad = self.backbone(pos, fmap, t_normed, sigma, mask)
+            grad = self.backbone(pos, fmap, t_normed, mask)
             grad = torch.cat(list(grad.values()), dim=1)
-            x = x + sigma**2 * grad
+            x = grad
             pos = {
                 'pedestrian': x[:, :pred['pedestrian']['length']],
                 'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
                 'vehicle': x[:, pred['pedestrian']['length'] + pred['bicyclist']['length']:]
             }
+            for field in fields:
+                pred[field]['location'].append(pos[field])
             if t > 0:
                 for field in fields:
                     pos[field], _ = self.perturb(pos[field], t - 1, areas[field])
@@ -216,8 +217,6 @@ class DiffusionBasedModel(nn.Module):
                     pos['bicyclist'],
                     pos['vehicle']
                 ], dim=1)
-            for field in fields:
-                pred[field]['location'].append(pos[field])
         return pred
 
     @torch.no_grad()

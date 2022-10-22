@@ -6,16 +6,21 @@ from networks import DiffusionBasedModel
 import numpy as np
 from matplotlib import pyplot as plt
 import cv2
+import argparse
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-v', '--video', action='store_true')
+    args = parser.parse_args()
+
     device = torch.device(0)
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/10-19-09:09:40'))
+    model.load_state_dict(torch.load('./ckpts/10-20-00:23:41'))
     model.to(device)
     model.eval()
 
@@ -29,56 +34,82 @@ if __name__ == '__main__':
         pred = model.generate(maps, lengths)
         maps = maps.cpu().numpy()
 
-        fig, ax = plt.subplots(figsize=(10, 10))
-        drivable_area = maps[0, 0]
-        ped_crossing = maps[0, 1]
-        walkway = maps[0, 2]
-        lane_divider = maps[0, 5]
-        orientation = maps[0, 6:8]
-        map_layers = np.stack([
-            drivable_area + lane_divider,
-            ped_crossing,
-            walkway
-        ], axis=-1) * 0.2
-        ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
-        for name in ['pedestrian', 'bicyclist', 'vehicle']:
-            color = name2color[name]
-            for i in range(pred[name]['length']):
-                loc = pred[name]['location'][-1][0, i].cpu().numpy() * axes_limit
-                ax.plot(loc[0], loc[1], 'x', color=color)
-                ax.annotate(str(i), loc)
-        ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
-        ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
-        fig.savefig("./result/test_%03d.png" % idx)
-        plt.close(fig)
+        if args.video:
+            for step in range(1000):
+                fig, ax = plt.subplots(figsize=(10, 10))
+                drivable_area = maps[0, 0]
+                ped_crossing = maps[0, 1]
+                walkway = maps[0, 2]
+                lane_divider = maps[0, 5]
+                orientation = maps[0, 6:8]
+                map_layers = np.stack([
+                    drivable_area + lane_divider,
+                    ped_crossing,
+                    walkway
+                ], axis=-1) * 0.2
+                ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
+                for name in ['pedestrian', 'bicyclist', 'vehicle']:
+                    color = name2color[name]
+                    for i in range(pred[name]['length']):
+                        loc = pred[name]['location'][step][0, i].cpu().numpy() * axes_limit
+                        ax.plot(loc[0], loc[1], 'x', color=color)
+                        ax.annotate(str(i), loc)
+                ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
+                ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
+                fig.savefig("./result/test_%03d.png" % step)
+                plt.close(fig)
+            frame = cv2.imread("./result/test_000.png")
+            height, width, layers = frame.shape
+            video = cv2.VideoWriter('video.avi', 0, 10, (width,height))
+            for step in range(0, 1000, 5):
+                video.write(cv2.imread("./result/test_%03d.png" % step))
+            cv2.destroyAllWindows()
+            video.release()
+            break
+        
+        else:
+            fig, ax = plt.subplots(figsize=(10, 10))
+            drivable_area = maps[0, 0]
+            ped_crossing = maps[0, 1]
+            walkway = maps[0, 2]
+            lane_divider = maps[0, 5]
+            orientation = maps[0, 6:8]
+            map_layers = np.stack([
+                drivable_area + lane_divider,
+                ped_crossing,
+                walkway
+            ], axis=-1) * 0.2
+            ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
+            for name in ['pedestrian', 'bicyclist', 'vehicle']:
+                color = name2color[name]
+                for i in range(pred[name]['length']):
+                    loc = pred[name]['location'][-1][0, i].cpu().numpy() * axes_limit
+                    ax.plot(loc[0], loc[1], 'x', color=color)
+                    ax.annotate(str(i), loc)
+            ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
+            ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
+            fig.savefig("./result/test_%03d.png" % idx)
+            plt.close(fig)
 
-        fig, ax = plt.subplots(figsize=(10, 10))
-        drivable_area = maps[0, 0]
-        ped_crossing = maps[0, 1]
-        walkway = maps[0, 2]
-        lane_divider = maps[0, 5]
-        orientation = maps[0, 6:8]
-        map_layers = np.stack([
-            drivable_area + lane_divider,
-            ped_crossing,
-            walkway
-        ], axis=-1) * 0.2
-        ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
-        for name in ['pedestrian', 'bicyclist', 'vehicle']:
-            color = name2color[name]
-            for i in range(batch[name]['length']):
-                loc = batch[name]['location'][0, i].cpu().numpy() * axes_limit
-                ax.plot(loc[0], loc[1], 'x', color=color)
-                ax.annotate(str(i), loc)
-        ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
-        ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
-        fig.savefig("./result/test_%03d_gt.png" % idx)
-        plt.close(fig)
-    
-    #frame = cv2.imread("./result/test_000.png")
-    #height, width, layers = frame.shape
-    #video = cv2.VideoWriter('video.avi', 0, 10, (width,height))
-    #for step in range(0, 1000, 5):
-        #video.write(cv2.imread("./result/test_%03d.png" % step))
-    #cv2.destroyAllWindows()
-    #video.release()
+            fig, ax = plt.subplots(figsize=(10, 10))
+            drivable_area = maps[0, 0]
+            ped_crossing = maps[0, 1]
+            walkway = maps[0, 2]
+            lane_divider = maps[0, 5]
+            orientation = maps[0, 6:8]
+            map_layers = np.stack([
+                drivable_area + lane_divider,
+                ped_crossing,
+                walkway
+            ], axis=-1) * 0.2
+            ax.imshow(map_layers, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit])
+            for name in ['pedestrian', 'bicyclist', 'vehicle']:
+                color = name2color[name]
+                for i in range(batch[name]['length']):
+                    loc = batch[name]['location'][0, i].cpu().numpy() * axes_limit
+                    ax.plot(loc[0], loc[1], 'x', color=color)
+                    ax.annotate(str(i), loc)
+            ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)
+            ax.set_ylim(-1.5 * axes_limit, 1.5 * axes_limit)
+            fig.savefig("./result/test_%03d_gt.png" % idx)
+            plt.close(fig)

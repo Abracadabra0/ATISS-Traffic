@@ -6,7 +6,7 @@ from .utils import MapIndexLayer
 
 
 class ConditionalEncoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dim_fmap=512, size_fmap=40, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, nhead, dim_map_embed=512, size_fmap=40, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.dim_feedforward = dim_feedforward
@@ -28,7 +28,7 @@ class ConditionalEncoderLayer(nn.Module):
         self.act = nn.GELU()
         self.indexing = MapIndexLayer(size_fmap)
         self.map_mlp = nn.Sequential(
-            nn.Linear(dim_fmap, d_model),
+            nn.Linear(dim_map_embed, d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model)
         )
@@ -66,11 +66,11 @@ class PositionPredictor(nn.Module):
 
 
 class ConditionalEncoder(nn.Module):
-    def __init__(self, d_model, n_layers, nhead=12, dim_fmap=512, size_fmap=40, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, n_layers, nhead=12, dim_map_embed=512, size_fmap=40, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.layers = nn.ModuleList([
-            ConditionalEncoderLayer(d_model, nhead, dim_fmap, size_fmap, dim_feedforward, dim_t_embed, dropout) for _ in range(n_layers)
+            ConditionalEncoderLayer(d_model, nhead, dim_map_embed, size_fmap, dim_feedforward, dim_t_embed, dropout) for _ in range(n_layers)
         ])
         self.norm = nn.LayerNorm(d_model)
         self.pos_predictor = PositionPredictor(d_model)
@@ -111,6 +111,7 @@ class TransformerBackbone(nn.Module):
         self.body = ConditionalEncoder(d_model=d_model,
                                        n_layers=n_layers,
                                        nhead=nhead,
+                                       dim_map_embed=dim_map_embed,
                                        dim_feedforward=dim_feedforward,
                                        dim_t_embed=dim_t_embed,
                                        dropout=dropout)

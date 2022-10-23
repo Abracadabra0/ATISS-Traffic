@@ -32,11 +32,11 @@ class MapIndexLayer(nn.Module):
         # fmap: (B, C, wl, wl)
         # loc: (B, L, 2)
         C = fmap.size(1)
-        loc = loc.clamp(min=-0.9999, max=0.9999)
+        loc = loc.clamp(min=-0.999, max=0.999)
         x = loc[..., 0]
         y = loc[..., 1]
         row = ((1 - y) * self.wl / 2).long()
-        col = ((x - 1) * self.wl / 2).long()
+        col = ((1 + x) * self.wl / 2).long()
         idx = row * self.wl + col  # (B, L)
         idx = idx[..., None].repeat(1, 1, C)  # (B, L, C)
         fmap = fmap.flatten(2, 3).permute(0, 2, 1)  # (B, wl * wl, C)

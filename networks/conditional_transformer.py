@@ -6,7 +6,7 @@ from .utils import MapIndexLayer
 
 
 class ConditionalEncoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dim_map_embed=512, size_fmap=40, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, nhead, dim_map_embed=512, size_fmap=160, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.dim_feedforward = dim_feedforward

@@ -24,15 +24,15 @@ if __name__ == '__main__':
     os.makedirs('./ckpts', exist_ok=True)
     timestamp = time.strftime('%m-%d-%H:%M:%S')
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
-    B = 1
+    B = 4
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=B, shuffle=True, num_workers=8, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).test()
     model = DiffusionBasedModel(time_steps=1000)
     model = model.to(device)
     optimizer = Adam(model.parameters(), lr=1e-3)
-    scheduler = LambdaLR(optimizer, lr_func(1000))
-    n_epochs = 8000
+    scheduler = LambdaLR(optimizer, lr_func(8000))
+    n_epochs = 800
 
     iters = 0
     hist = {name: np.zeros(100) for name in ['pedestrian', 'bicyclist', 'vehicle']}

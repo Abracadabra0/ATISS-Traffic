@@ -69,7 +69,7 @@ class DiffusionBasedModel(nn.Module):
         self.register_buffer('blur_factors', blur_factors)
         diffuse_factors = self.diffuse_factor_schedule(time_steps)
         self.register_buffer('diffuse_factors', diffuse_factors)
-        self.feature_extractor = Extractor(8)
+        self.feature_extractor = Extractor(9)
 
         self.n_pedestrian = ObjectNumberPredictor(256)
         self.n_bicyclist = ObjectNumberPredictor(256)
@@ -111,7 +111,6 @@ class DiffusionBasedModel(nn.Module):
         x = col / axes_limit - 1
         y = 1 - row / axes_limit
         perturbed = torch.stack([x, y], dim=-1).reshape(B, L, 2)
-        gt = pts
         return perturbed, pts
 
     def forward(self, batch):

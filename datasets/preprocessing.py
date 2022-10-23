@@ -203,12 +203,12 @@ class AutoregressivePreprocessor:
 class DiffusionModelPreprocessor:
     """
         input_layers:
-            drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation
-            7 layers in total
+            drivable_area, ped_crossing, walkway, dist_map, carpark_area, lane, lane_divider, orientation
+            8 layers in total
 
         output_layers:
-            drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation(sin), orientation(cos),
-            8 layers in total
+            drivable_area, ped_crossing, walkway, dist_map, carpark_area, lane, lane_divider, orientation(sin), orientation(cos),
+            9 layers in total
     """
 
     def __init__(self, device):
@@ -284,18 +284,20 @@ class DiffusionModelPreprocessor:
                                             dtype=torch.float32)
                 batch['map'][i] = F.rotate(batch['map'][i], deg)
                 batch['map'][i][6] += rad
-            # drivable_area, ped_crossing, walkway, carpark_area, lane, lane_divider, orientation
+            # drivable_area, ped_crossing, walkway, dist_map, carpark_area, lane, lane_divider, orientation
             drivable_area = batch['map'][i][0]
             ped_crossing = batch['map'][i][1]
             walkway = batch['map'][i][2]
-            carpark_area = batch['map'][i][3]
-            lane = batch['map'][i][4]
-            lane_divider = batch['map'][i][5]
-            orientation = batch['map'][i][6]
+            dist_map = batch['map'][i][3]
+            carpark_area = batch['map'][i][4]
+            lane = batch['map'][i][5]
+            lane_divider = batch['map'][i][6]
+            orientation = batch['map'][i][7]
             batch['map'][i] = torch.stack([
                 drivable_area,
                 ped_crossing,
                 walkway,
+                dist_map,
                 carpark_area,
                 lane,
                 lane_divider,

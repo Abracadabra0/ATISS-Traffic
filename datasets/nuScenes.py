@@ -132,6 +132,10 @@ class NuScenesDataset(Dataset):
                 lane_divider = cv2.resize(map_mask[5], (wl, wl))
                 road_segment = cv2.resize(map_mask[6], (wl, wl))
 
+                # distance transformation for drivable area
+                dist_map = cv2.distanceTransform(drivable_area, cv2.DIST_L2, 3)
+                dist_map = dist_map / wl * 2
+
                 # get lane orientation
                 lane_pts = []
                 orientation = np.zeros_like(lane, dtype=float)
@@ -175,6 +179,7 @@ class NuScenesDataset(Dataset):
                     drivable_area,
                     ped_crossing,
                     walkway,
+                    dist_map,
                     carpark_area,
                     lane,
                     lane_divider,

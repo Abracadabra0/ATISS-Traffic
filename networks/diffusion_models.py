@@ -146,6 +146,7 @@ class DiffusionBasedModel(nn.Module):
                   'bicyclist': bicyclists,
                   'vehicle': vehicles}
         pos = {}
+        original = {}
         drivable_area = maps[:, 0]
         walkable_area = (maps[:, 1] + maps[:, 2]).clamp(max=1)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
@@ -156,13 +157,14 @@ class DiffusionBasedModel(nn.Module):
             perturbed, pts = self.perturb(inputs[field]['location'], t, area)
             target[field]['gt'] = pts
             pos[field] = perturbed
+            original[field] = pts
         mask = torch.cat([
             get_length_mask(pedestrians['length']),
             get_length_mask(bicyclists['length']),
             get_length_mask(vehicles['length'])
         ], dim=1)
         t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
-        result = self.backbone(pos, fmap, t_normed, mask)
+        result = self.backbone(pos, original, fmap, t_normed, mask)
         for field in ['pedestrian', 'bicyclist', 'vehicle']:
             pred[field]['score'] = result[field]
 

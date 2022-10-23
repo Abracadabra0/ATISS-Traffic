@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn.modules.activation import MultiheadAttention
-from .embeddings import SinusoidalEmb, PositionalEncoding
+from .embeddings import SinusoidalEmb, PositionalEncoding2D
 from .utils import MapIndexLayer
 
 
@@ -107,7 +107,7 @@ class TransformerBackbone(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model, d_model)
         )
-        self.pe = PositionalEncoding(d_model, max_len=64)
+        self.pe = PositionalEncoding2D(d_model, max_len=100)
         self.body = ConditionalEncoder(d_model=d_model,
                                        n_layers=n_layers,
                                        nhead=nhead,
@@ -119,7 +119,7 @@ class TransformerBackbone(nn.Module):
         self.category_embedding = nn.Embedding(3, dim_category_embed)
         self.empty_token = nn.Parameter(torch.randn(d_model))
 
-    def forward(self, pos, fmap, t, mask=None):
+    def forward(self, pos, original, fmap, t, mask=None):
         # pos: (B, L, 2)
         B = fmap.shape[0]
         x = [self.empty_token.reshape(1, 1, -1).repeat(B, 1, 1)]
@@ -131,7 +131,9 @@ class TransformerBackbone(nn.Module):
             category = torch.ones((B, L), dtype=torch.long).to(fmap.device) * i
             fcategory = self.category_embedding(category)  # (B, L, dim_category_embed)
             feature = torch.cat([fcategory, pos_embed], dim=-1)
-            feature = self.pe(self.head(feature))
+            feature = self.head(feature)
+            rank = self.pe.get_rank_from_pts(original[field])
+            feature = self.pe(feature, rank)
             x.append(feature)
         x = torch.cat(x, dim=1)  # (B, L + 1, d_model)
         pad = torch.zeros(B, 1).to(x.device)

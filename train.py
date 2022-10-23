@@ -27,7 +27,7 @@ if __name__ == '__main__':
     B = 4
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=B, shuffle=True, num_workers=8, collate_fn=collate_fn)
-    preprocessor = DiffusionModelPreprocessor(device).test()
+    preprocessor = DiffusionModelPreprocessor(device).train()
     model = DiffusionBasedModel(time_steps=1000)
     model = model.to(device)
     optimizer = Adam(model.parameters(), lr=1e-3)

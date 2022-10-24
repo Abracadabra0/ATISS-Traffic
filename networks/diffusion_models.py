@@ -198,9 +198,10 @@ class DiffusionBasedModel(nn.Module):
             'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
             'vehicle': x[:, pred['pedestrian']['length'] + pred['bicyclist']['length']:]
         }
+        original = {k: v.clone() for k, v in pos.items()}
         for t in tqdm(reversed(range(self.time_steps))):
             t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
-            grad = self.backbone(pos, fmap, t_normed, mask)
+            grad = self.backbone(pos, original, fmap, t_normed, mask)
             grad = torch.cat(list(grad.values()), dim=1)
             x = grad
             pos = {

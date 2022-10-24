@@ -20,7 +20,7 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/10-23-03:09:06'))
+    model.load_state_dict(torch.load('./ckpts/10-23-10:12:16'))
     model.to(device)
     model.eval()
 
@@ -40,8 +40,7 @@ if __name__ == '__main__':
                 drivable_area = maps[0, 0]
                 ped_crossing = maps[0, 1]
                 walkway = maps[0, 2]
-                lane_divider = maps[0, 5]
-                orientation = maps[0, 6:8]
+                lane_divider = maps[0, 6]
                 map_layers = np.stack([
                     drivable_area + lane_divider,
                     ped_crossing,
@@ -72,8 +71,7 @@ if __name__ == '__main__':
             drivable_area = maps[0, 0]
             ped_crossing = maps[0, 1]
             walkway = maps[0, 2]
-            lane_divider = maps[0, 5]
-            orientation = maps[0, 6:8]
+            lane_divider = maps[0, 6]
             map_layers = np.stack([
                 drivable_area + lane_divider,
                 ped_crossing,
@@ -95,8 +93,7 @@ if __name__ == '__main__':
             drivable_area = maps[0, 0]
             ped_crossing = maps[0, 1]
             walkway = maps[0, 2]
-            lane_divider = maps[0, 5]
-            orientation = maps[0, 6:8]
+            lane_divider = maps[0, 6]
             map_layers = np.stack([
                 drivable_area + lane_divider,
                 ped_crossing,

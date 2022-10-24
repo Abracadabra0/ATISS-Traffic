@@ -14,8 +14,8 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--video', action='store_true')
     args = parser.parse_args()
 
-    device = torch.device(0)
-    dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
+    device = torch.device('cpu')
+    dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1

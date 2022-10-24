@@ -178,7 +178,7 @@ class DiffusionBasedModel(nn.Module):
         device = areas['pedestrian'].device
         return (torch.rand(B, L, 2) * 2 - 1).to(device)
 
-    def sample_score_model(self, pred, maps, fmap):
+    def sample_score_model(self, pred, maps, fmap, step_size=0.2):
         from tqdm import tqdm
         import warnings
         warnings.filterwarnings("ignore")
@@ -198,12 +198,17 @@ class DiffusionBasedModel(nn.Module):
             'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
             'vehicle': x[:, pred['pedestrian']['length'] + pred['bicyclist']['length']:]
         }
+        perturbed = {}
         original = {k: v.clone() for k, v in pos.items()}
         for t in tqdm(reversed(range(self.time_steps))):
             t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
             grad = self.backbone(pos, original, fmap, t_normed, mask)
             grad = torch.cat(list(grad.values()), dim=1)
-            x = grad
+            denoise = grad - x
+            for field in fields:
+                perturbed[field], _ = self.perturb(pos[field], t, areas[field])
+            noise = torch.cat([pos['pedestrian'], pos['bicyclist'], pos['vehicle']], dim=1) - x
+            x = x + step_size * denoise + math.sqrt(2 * step_size) * noise
             pos = {
                 'pedestrian': x[:, :pred['pedestrian']['length']],
                 'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
@@ -211,14 +216,6 @@ class DiffusionBasedModel(nn.Module):
             }
             for field in fields:
                 pred[field]['location'].append(pos[field])
-            if t > 0:
-                for field in fields:
-                    pos[field], _ = self.perturb(pos[field], t - 1, areas[field])
-                x = torch.cat([
-                    pos['pedestrian'],
-                    pos['bicyclist'],
-                    pos['vehicle']
-                ], dim=1)
         return pred
 
     @torch.no_grad()

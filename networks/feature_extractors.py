@@ -66,8 +66,8 @@ class Extractor(nn.Module):
 
     def forward(self, x):
         # x: (B, input_channels, 320, 320)
-        h_small = self.small(x)  # (B, 256, 80, 80)
-        h_mid = self.mid(x)  # (B, 256, 80, 80)
+        h_small = self.small(x)  # (B, 256, 160, 160)
+        h_mid = self.mid(x)  # (B, 256, 160, 160)
         h = torch.cat([h_small, h_mid], dim=1)
         fmap = h
         h = self.large(h)

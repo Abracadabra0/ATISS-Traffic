@@ -27,12 +27,12 @@ if __name__ == '__main__':
     B = 4
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=B, shuffle=True, num_workers=8, collate_fn=collate_fn)
-    preprocessor = DiffusionModelPreprocessor(device).test()
+    preprocessor = DiffusionModelPreprocessor(device).train()
     model = DiffusionBasedModel(time_steps=1000)
     model = model.to(device)
-    optimizer = Adam(model.parameters(), lr=1e-3)
-    scheduler = LambdaLR(optimizer, lr_func(8000))
-    n_epochs = 800
+    optimizer = Adam(model.parameters(), lr=5e-4)
+    scheduler = LambdaLR(optimizer, lr_func(5000))
+    n_epochs = 1000
 
     iters = 0
     hist = {name: np.zeros(100) for name in ['pedestrian', 'bicyclist', 'vehicle']}

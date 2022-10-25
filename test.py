@@ -15,12 +15,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     device = torch.device('cpu')
-    dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuSceneProcessed/train")
+    dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/10-23-10:12:16'))
+    model.load_state_dict(torch.load('./ckpts/10-24-11:40:48'))
     model.to(device)
     model.eval()
 
@@ -40,7 +40,7 @@ if __name__ == '__main__':
                 drivable_area = maps[0, 0]
                 ped_crossing = maps[0, 1]
                 walkway = maps[0, 2]
-                lane_divider = maps[0, 6]
+                lane_divider = maps[0, 4]
                 map_layers = np.stack([
                     drivable_area + lane_divider,
                     ped_crossing,
@@ -71,7 +71,7 @@ if __name__ == '__main__':
             drivable_area = maps[0, 0]
             ped_crossing = maps[0, 1]
             walkway = maps[0, 2]
-            lane_divider = maps[0, 6]
+            lane_divider = maps[0, 4]
             map_layers = np.stack([
                 drivable_area + lane_divider,
                 ped_crossing,
@@ -93,7 +93,7 @@ if __name__ == '__main__':
             drivable_area = maps[0, 0]
             ped_crossing = maps[0, 1]
             walkway = maps[0, 2]
-            lane_divider = maps[0, 6]
+            lane_divider = maps[0, 4]
             map_layers = np.stack([
                 drivable_area + lane_divider,
                 ped_crossing,

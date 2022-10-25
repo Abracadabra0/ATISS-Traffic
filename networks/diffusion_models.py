@@ -69,7 +69,7 @@ class DiffusionBasedModel(nn.Module):
         self.register_buffer('blur_factors', blur_factors)
         diffuse_factors = self.diffuse_factor_schedule(time_steps)
         self.register_buffer('diffuse_factors', diffuse_factors)
-        self.feature_extractor = Extractor(9)
+        self.feature_extractor = Extractor(5)
 
         self.n_pedestrian = ObjectNumberPredictor(256)
         self.n_bicyclist = ObjectNumberPredictor(256)
@@ -79,7 +79,7 @@ class DiffusionBasedModel(nn.Module):
         self.axes_limit = axes_limit
         self.loss_fn = DiffusionLoss(
             weights_entry={
-                'length': 0.1,
+                'length': 0.,
                 'noise': 1
             },
             weights_category={
@@ -120,7 +120,7 @@ class DiffusionBasedModel(nn.Module):
         vehicles = batch['vehicle']
         B = maps.size(0)
         device = maps.device
-        fmap, avg = self.feature_extractor(maps)  # (B, 512, 320, 320)
+        fmap = self.feature_extractor(maps)  # (B, 512, 320, 320)
         pred = {
             'pedestrian': {},
             'bicyclist': {},
@@ -132,6 +132,7 @@ class DiffusionBasedModel(nn.Module):
             'vehicle': {}
         }
         # predict number of objects
+        avg = torch.randn(B, 256).to(fmap.device)
         pred['pedestrian']['length'] = self.n_pedestrian(avg)
         pred['bicyclist']['length'] = self.n_bicyclist(avg)
         pred['vehicle']['length'] = self.n_vehicle(avg)
@@ -173,12 +174,30 @@ class DiffusionBasedModel(nn.Module):
         return loss_dict
 
     def init_pts(self, lengths, areas):
-        B = areas['pedestrian'].shape[0]
-        L = sum(lengths.values())
-        device = areas['pedestrian'].device
-        return (torch.rand(B, L, 2) * 2 - 1).to(device)
-
-    def sample_score_model(self, pred, maps, fmap, step_size=0.2):
+        fields = ['pedestrian', 'bicyclist', 'vehicle']
+        pts = {}
+        for field in fields:
+            area = areas[field]
+            B = area.shape[0]
+            # area: (B, size, size)
+            size = area.shape[1]
+            axes_limit = size // 2
+            L = lengths[field]
+            if L == 0:
+                sampled_pts = torch.zeros(B, 0, 2).to(area.device)
+            else:
+                prob = Categorical(probs=area.flatten(1))
+                sampled_pts = prob.sample(torch.tensor([L], device=area.device))  # (L, B)
+                sampled_pts = sampled_pts.permute(1, 0)  # (B, L)
+                row = torch.div(sampled_pts, size, rounding_mode='trunc')
+                col = sampled_pts - row * size
+                x = col / axes_limit - 1
+                y = 1 - row / axes_limit
+                sampled_pts = torch.stack([x, y], dim=-1)
+            pts[field] = sampled_pts  # (B, L, 2)
+        return torch.cat([pts['pedestrian'], pts['bicyclist'], pts['vehicle']], dim=1)
+    
+    def sample_score_model(self, pred, maps, fmap, step_size=1):
         from tqdm import tqdm
         import warnings
         warnings.filterwarnings("ignore")
@@ -205,10 +224,13 @@ class DiffusionBasedModel(nn.Module):
             grad = self.backbone(pos, original, fmap, t_normed, mask)
             grad = torch.cat(list(grad.values()), dim=1)
             denoise = grad - x
-            for field in fields:
-                perturbed[field], _ = self.perturb(pos[field], t, areas[field])
-            noise = torch.cat([pos['pedestrian'], pos['bicyclist'], pos['vehicle']], dim=1) - x
-            x = x + step_size * denoise + math.sqrt(2 * step_size) * noise
+            if t > 0:
+                for field in fields:
+                    perturbed[field], _ = self.perturb(pos[field], t - 1, areas[field])
+                noise = torch.cat([pos['pedestrian'], pos['bicyclist'], pos['vehicle']], dim=1) - x
+                x = x + step_size * denoise + step_size / 2 * noise
+            else:
+                x = x + step_size * denoise
             pos = {
                 'pedestrian': x[:, :pred['pedestrian']['length']],
                 'bicyclist': x[:, pred['pedestrian']['length']:pred['pedestrian']['length'] + pred['bicyclist']['length']],
@@ -222,13 +244,14 @@ class DiffusionBasedModel(nn.Module):
     def generate(self, maps, lengths=None):
         B = maps.size(0)
         assert B == 1
-        fmap, avg = self.feature_extractor(maps)  # (B, 512, 320, 320)
+        fmap = self.feature_extractor(maps)  # (B, 512, 320, 320)
         pred = {
             'pedestrian': {},
             'bicyclist': {},
             'vehicle': {}
         }
         # predict number of objects
+        avg = fmap.mean(dim=(2, 3))
         if lengths is None:
             pred['pedestrian']['length'] = self.n_pedestrian(avg).sample().item()
             pred['bicyclist']['length'] = self.n_bicyclist(avg).sample().item()

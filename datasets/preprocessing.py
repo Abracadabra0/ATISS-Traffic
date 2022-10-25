@@ -298,11 +298,7 @@ class DiffusionModelPreprocessor:
                 ped_crossing,
                 walkway,
                 dist_map,
-                carpark_area,
-                lane,
                 lane_divider,
-                torch.sin(orientation) * lane,
-                torch.cos(orientation) * lane
             ], dim=0)
             if rotate:
                 batch['location'][i] = batch['location'][i] @ rotation_mat

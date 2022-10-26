@@ -245,12 +245,12 @@ class NuScenesDataset(Dataset):
 
     def __init__(self, dataroot: str):
         self.dataroot = dataroot
-        self.samples = os.listdir(dataroot)
-        # self.samples = ['07963799cc9d4a19bd0d9076e4a00da4']
+        # self.samples = os.listdir(dataroot)
+        self.samples = ['07963799cc9d4a19bd0d9076e4a00da4']
 
     def __len__(self):
-        return len(self.samples)
-        # return 1
+        # return len(self.samples)
+        return 1
 
     def __getitem__(self, idx):
         path = os.path.join(self.dataroot, self.samples[idx])

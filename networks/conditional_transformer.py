@@ -7,7 +7,7 @@ from torch.nn import Transformer
 
 
 class ConditionalEncoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dim_map_embed=512, size_fmap=160, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, nhead, dim_map_embed=512, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.in_layers = nn.ModuleList([
@@ -36,7 +36,7 @@ class ConditionalEncoderLayer(nn.Module):
             nn.Linear(d_model, d_model),
             nn.ReLU()
         )
-        self.indexing = MapIndexLayer(size_fmap)
+        self.indexing = MapIndexLayer()
 
     def forward(self, src, t, fmap, loc, src_mask=None, src_key_padding_mask=None):
         # incorporate map info
@@ -82,11 +82,11 @@ class NoisePredictor(nn.Module):
 
 
 class ConditionalEncoder(nn.Module):
-    def __init__(self, d_model, n_layers, nhead=12, dim_map_embed=512, size_fmap=160, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
+    def __init__(self, d_model, n_layers, nhead=12, dim_map_embed=512, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.layers = nn.ModuleList([
-            ConditionalEncoderLayer(d_model, nhead, dim_map_embed, size_fmap, dim_feedforward, dim_t_embed, dropout)
+            ConditionalEncoderLayer(d_model, nhead, dim_map_embed, dim_feedforward, dim_t_embed, dropout)
             for _ in range(n_layers)
         ])
         self.norm = nn.LayerNorm(d_model)

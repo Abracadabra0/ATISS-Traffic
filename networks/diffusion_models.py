@@ -8,6 +8,8 @@ from .feature_extractors import Extractor
 from .utils import get_length_mask
 from .losses import DiffusionLoss
 import math
+import numpy as np
+import cv2
 
 
 class ObjectNumberPredictor(nn.Module):
@@ -30,24 +32,36 @@ class ObjectNumberPredictor(nn.Module):
 
 class DiffusionBasedModel(nn.Module):
     @staticmethod
-    def blur_factor_schedule(timesteps, start=1, end=64):
+    def blur_factor_schedule(timesteps, start=1, end=128):
         factors = torch.linspace(math.log(start), math.log(end), timesteps)
         return torch.exp(factors)
 
     @staticmethod
-    def diffuse_factor_schedule(timesteps, start=1e-2, end=20):
+    def diffuse_factor_schedule(timesteps, start=1e-2, end=10):
         factors = torch.linspace(math.log(start), math.log(end), timesteps)
         return torch.exp(factors)
 
     @staticmethod
-    def blur(img, factor):
-        size = img.shape[-1]
-        new_size = int(size / factor)
-        blurred = nn.AdaptiveAvgPool2d(new_size)(img.unsqueeze(1)).squeeze(1)
-        blurred = functional.gaussian_blur(blurred, [3, 3], [0.5, 0.5])
-        blurred = functional.resize(blurred, [size, size])
-        blurred = functional.gaussian_blur(blurred, [3, 3], [0.5, 0.5])
-        return blurred
+    def blur(image, sigma_g, n=5):
+        device = image.device
+        images = list(image.cpu().numpy())
+        w = np.sqrt(12 * sigma_g ** 2 / n + 1)
+        wu = np.ceil(w) if np.ceil(w) % 2 == 1 else np.ceil(w) + 1
+        wl = np.floor(w) if np.floor(w) % 2 == 1 else np.floor(w) - 1
+        if w == w // 1:
+            wl -= 2
+            wu += 2
+        m = round((12 * sigma_g ** 2 - n * wl ** 2 - 4 * n * wl - 3 * n) / (-4 * wl - 4))
+        wl = int(wl)
+        wu = int(wu)
+        for i, img in enumerate(images):
+            for num in range(0, int(m)):
+                img = cv2.blur(img, (wl, wl))
+            for num in range(0, int(n - m)):
+                img = cv2.blur(img, (wu, wu))
+            images[i] = torch.from_numpy(img).float().to(device)
+        image = torch.stack(images, dim=0)
+        return image
 
     @staticmethod
     def diffuse(pts, size, factor):

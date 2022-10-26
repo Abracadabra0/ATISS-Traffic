@@ -3,66 +3,82 @@ from torch import nn
 from torch.nn.modules.activation import MultiheadAttention
 from .embeddings import SinusoidalEmb, PositionalEncoding2D
 from .utils import MapIndexLayer
+from torch.nn import Transformer
 
 
 class ConditionalEncoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_map_embed=512, size_fmap=160, dim_feedforward=2048, dim_t_embed=256, dropout=0.1):
         super().__init__()
         self.d_model = d_model
-        self.dim_feedforward = dim_feedforward
-        self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
-        # Implementation of Feedforward model
-        self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.linear2 = nn.Linear(dim_feedforward, d_model)
-        self.dropout = nn.Dropout(dropout)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-
+        self.in_layers = nn.ModuleList([
+            nn.LayerNorm(d_model),
+            nn.GELU(),
+            nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
+        ])
         self.time_mlp = nn.Sequential(
             SinusoidalEmb(dim_t_embed, input_dim=1, T_min=1e-3, T_max=10),
-            nn.Linear(dim_t_embed, dim_feedforward),
-            nn.GELU(),
-            nn.Linear(dim_feedforward, dim_feedforward)
+            nn.Linear(dim_t_embed, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model * 2)
         )
-
-        self.act = nn.GELU()
-        self.indexing = MapIndexLayer(size_fmap)
+        self.out_layers = nn.ModuleList([
+            nn.LayerNorm(d_model),
+            nn.GELU(),
+            nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
+        ])
+        self.skip_conn = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.LayerNorm(d_model)
+        )
         self.map_mlp = nn.Sequential(
             nn.Linear(dim_map_embed, d_model),
             nn.ReLU(),
-            nn.Linear(d_model, d_model)
+            nn.Linear(d_model, d_model),
+            nn.ReLU()
         )
+        self.indexing = MapIndexLayer(size_fmap)
 
     def forward(self, src, t, fmap, loc, src_mask=None, src_key_padding_mask=None):
         # incorporate map info
         map_info = self.indexing(fmap, loc)
-        map_embed = self.map_mlp(map_info)  # (B, L + 1, C)
-        src[:, 1:] = src[:, 1:] + map_embed[:, 1:]
-        src2 = self.self_attn(src, src, src, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)[0]
-        src = src + self.dropout(src2)
-        src = self.norm1(src)  # (B, L, d_model)
-        t_embed = self.time_mlp(t)  # (B, dim_feedforward)
-        src2 = self.linear1(src)
-        src2 = self.dropout(self.act(src2))
-        src2 = src2 + t_embed[:, None, :]
-        src = src + self.dropout(self.linear2(src2))
-        src = self.norm2(src)
+        map_embed = self.map_mlp(map_info)  # (B, L, d_model)
+        src[:, 1:] = src[:, 1:] + map_embed
+        h = self.in_layers[0](src)
+        h = self.in_layers[1](h)
+        h = self.in_layers[2](h, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask)
+        h = self.out_layers[0](h)
+        t_embed = self.time_mlp(t).unsqueeze(1)  # (B, 1, d_model * 2)
+        scale = t_embed[..., :self.d_model]
+        shift = t_embed[..., self.d_model:]
+        h = (1 + scale) * h + shift
+        h = self.out_layers[1](h)
+        h = self.out_layers[2](h, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask)
+        src = self.skip_conn(src) + h
         return src
 
 
-class PositionPredictor(nn.Module):
-    def __init__(self, d_model):
+class NoisePredictor(nn.Module):
+    def __init__(self, d_model, dim_t_embed):
         super().__init__()
+        self.time_mlp = nn.Sequential(
+            SinusoidalEmb(dim_t_embed, input_dim=1, T_min=1e-3, T_max=10),
+            nn.Linear(dim_t_embed, dim_t_embed),
+            nn.GELU(),
+            nn.Linear(dim_t_embed, dim_t_embed)
+        )
         self.body = nn.Sequential(
+            nn.Linear(d_model + dim_t_embed, d_model),
+            nn.ReLU(),
             nn.Linear(d_model, d_model),
-            nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Linear(d_model, 2),
-            nn.Sigmoid()
         )
 
-    def forward(self, f):
-        return self.body(f) * 2 - 1
+    def forward(self, f, t):
+        L = f.shape[1]
+        t_embed = self.time_mlp(t).unsqueeze(1).repeat(1, L, 1)
+        f = torch.cat([f, t_embed], dim=-1)
+        return self.body(f)
 
 
 class ConditionalEncoder(nn.Module):
@@ -70,19 +86,19 @@ class ConditionalEncoder(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.layers = nn.ModuleList([
-            ConditionalEncoderLayer(d_model, nhead, dim_map_embed, size_fmap, dim_feedforward, dim_t_embed, dropout) for _ in range(n_layers)
+            ConditionalEncoderLayer(d_model, nhead, dim_map_embed, size_fmap, dim_feedforward, dim_t_embed, dropout)
+            for _ in range(n_layers)
         ])
         self.norm = nn.LayerNorm(d_model)
-        self.pos_predictor = PositionPredictor(d_model)
+        self.noise_predictor = NoisePredictor(d_model, dim_t_embed=dim_t_embed)
 
-    def forward(self, src, t, fmap, src_mask=None, src_key_padding_mask=None):
+    def forward(self, src, t, fmap, loc, src_mask=None, src_key_padding_mask=None):
         output = src
-        loc = self.pos_predictor(output)
         for mod in self.layers:
             output = mod(output, t, fmap, loc, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask)
-            loc = self.pos_predictor(output)
-
-        return loc[:, 1:]
+            noise = self.noise_predictor(output[:, 1:], t)
+            loc = (loc - noise).clamp(min=-1, max=1)
+        return noise
 
 
 class TransformerBackbone(nn.Module):
@@ -138,7 +154,8 @@ class TransformerBackbone(nn.Module):
         x = torch.cat(x, dim=1)  # (B, L + 1, d_model)
         pad = torch.zeros(B, 1).to(x.device)
         mask = torch.cat([pad, mask], dim=1)
-        x = self.body(x, t, fmap, src_key_padding_mask=mask)
+        loc = torch.cat(list(pos.values()), dim=1)
+        x = self.body(x, t, fmap, loc, src_key_padding_mask=mask)
 
         return {
             'pedestrian': x[:, :length[0]],

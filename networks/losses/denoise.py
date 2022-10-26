@@ -34,7 +34,7 @@ class DiffusionLoss(nn.Module):
             loss_dict[name]['length'] = loss
         for name in ['pedestrian', 'bicyclist', 'vehicle']:
             mask = get_length_mask(target[name]['length'])  # (B, L)
-            tgt = target[name]['gt']
+            tgt = target[name]['noise']
             loss = ((pred[name]['score'] - tgt) ** 2).sum(dim=-1)  # (B, L)
             loss = (loss * mask).mean(dim=-1)  # (B, )
             loss = loss[target[name]['length'] > 0].mean()

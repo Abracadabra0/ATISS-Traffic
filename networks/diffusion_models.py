@@ -111,7 +111,8 @@ class DiffusionBasedModel(nn.Module):
         x = col / axes_limit - 1
         y = 1 - row / axes_limit
         perturbed = torch.stack([x, y], dim=-1).reshape(B, L, 2)
-        return perturbed, pts
+        noise = perturbed - pts
+        return perturbed, noise
 
     def forward(self, batch):
         maps = batch['map']
@@ -155,10 +156,10 @@ class DiffusionBasedModel(nn.Module):
                 area = drivable_area
             else:
                 area = walkable_area
-            perturbed, pts = self.perturb(inputs[field]['location'], t, area)
-            target[field]['gt'] = pts
+            perturbed, noise = self.perturb(inputs[field]['location'], t, area)
+            target[field]['noise'] = noise
             pos[field] = perturbed
-            original[field] = pts
+            original[field] = inputs[field]['location']
         mask = torch.cat([
             get_length_mask(pedestrians['length']),
             get_length_mask(bicyclists['length']),

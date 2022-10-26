@@ -2,7 +2,6 @@ import os
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
 from datasets import NuScenesDataset, DiffusionModelPreprocessor, collate_fn
@@ -18,14 +17,13 @@ def lr_func(warmup):
 
 
 if __name__ == '__main__':
-    device = torch.device(0)
+    device = torch.device('cpu')
     np.random.seed(0)
     torch.manual_seed(0)
     os.makedirs('./ckpts', exist_ok=True)
     timestamp = time.strftime('%m-%d-%H:%M:%S')
-    writer = SummaryWriter(log_dir=f'./log/{timestamp}')
-    B = 4
-    dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
+    B = 1
+    dataset = NuScenesDataset("/media/yifanlin/My Passport/data/nuSceneProcessed/train")
     dataloader = DataLoader(dataset, batch_size=B, shuffle=True, num_workers=8, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).train()
     model = DiffusionBasedModel(time_steps=1000)

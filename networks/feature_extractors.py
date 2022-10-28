@@ -99,6 +99,7 @@ class Extractor(nn.Module):
         for i in range(4):
             h = self.body[i](h)
             fmaps.append(self.tail[i](h))
+        avg = fmaps[-1].mean(dim=(2, 3))
         fmaps = torch.cat(fmaps, dim=1)
         fmaps = self.refine(fmaps)
-        return fmaps
+        return fmaps, avg

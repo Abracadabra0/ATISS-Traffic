@@ -20,7 +20,7 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/10-24-11:40:48'))
+    model.load_state_dict(torch.load('./ckpts/10-27-21:12:34/final'))
     model.to(device)
     model.eval()
 
@@ -28,6 +28,8 @@ if __name__ == '__main__':
     name2color = {'pedestrian': 'red', 'bicyclist': 'blue', 'vehicle': 'green'}
 
     for idx, batch in enumerate(dataloader):
+        if idx == 0:
+            continue
         batch = preprocessor(batch)
         maps = batch['map']
         lengths = [batch['pedestrian']['length'].item(), batch['bicyclist']['length'].item(), batch['vehicle']['length'].item()]

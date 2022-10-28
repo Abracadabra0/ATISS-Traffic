@@ -23,6 +23,7 @@ if __name__ == '__main__':
     torch.manual_seed(0)
     os.makedirs('./ckpts', exist_ok=True)
     timestamp = time.strftime('%m-%d-%H:%M:%S')
+    os.makedirs(f'./ckpts/{timestamp}')
     writer = SummaryWriter(log_dir=f'./log/{timestamp}')
     B = 4
     dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
@@ -30,9 +31,9 @@ if __name__ == '__main__':
     preprocessor = DiffusionModelPreprocessor(device).train()
     model = DiffusionBasedModel(time_steps=1000)
     model = model.to(device)
-    optimizer = Adam(model.parameters(), lr=5e-4)
+    optimizer = Adam(model.parameters(), lr=1e-3)
     scheduler = LambdaLR(optimizer, lr_func(5000))
-    n_epochs = 1000
+    n_epochs = 800
 
     iters = 0
     hist = {name: np.zeros(100) for name in ['pedestrian', 'bicyclist', 'vehicle']}
@@ -60,9 +61,11 @@ if __name__ == '__main__':
             optimizer.step()
             scheduler.step()
             iters += 1
+        if (epoch + 1) % 100 == 0:
+            torch.save(model.state_dict(), f'./ckpts/{timestamp}/epoch-{epoch}')
     for name in ['pedestrian', 'bicyclist', 'vehicle']:
         hist[name] = hist[name] / cnt[name]
         for step, y in enumerate(hist[name]):
             writer.add_scalar(f'distribution/{name}', y, step)
     model.cpu()
-    torch.save(model.state_dict(), f'./ckpts/{timestamp}')
+    torch.save(model.state_dict(), f'./ckpts/{timestamp}/final')

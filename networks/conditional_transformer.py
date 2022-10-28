@@ -3,7 +3,6 @@ from torch import nn
 from torch.nn.modules.activation import MultiheadAttention
 from .embeddings import SinusoidalEmb, PositionalEncoding2D
 from .utils import MapIndexLayer
-from torch.nn import Transformer
 
 
 class ConditionalEncoderLayer(nn.Module):
@@ -19,7 +18,7 @@ class ConditionalEncoderLayer(nn.Module):
             SinusoidalEmb(dim_t_embed, input_dim=1, T_min=1e-3, T_max=10),
             nn.Linear(dim_t_embed, d_model),
             nn.ReLU(),
-            nn.Linear(d_model, d_model * 2)
+            nn.Linear(d_model, d_model)
         )
         self.out_layers = nn.ModuleList([
             nn.LayerNorm(d_model),
@@ -34,23 +33,23 @@ class ConditionalEncoderLayer(nn.Module):
             nn.Linear(dim_map_embed, d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
         )
         self.indexing = MapIndexLayer()
 
     def forward(self, src, t, fmap, loc, src_mask=None, src_key_padding_mask=None):
         # incorporate map info
+        h = src.clone()
         map_info = self.indexing(fmap, loc)
         map_embed = self.map_mlp(map_info)  # (B, L, d_model)
-        src[:, 1:] = src[:, 1:] + map_embed
-        h = self.in_layers[0](src)
+        h[:, 1:] = h[:, 1:] + map_embed
+        h = self.in_layers[0](h)
         h = self.in_layers[1](h)
         h = self.in_layers[2](h, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask)
+        t_embed = self.time_mlp(t).unsqueeze(1)  # (B, 1, d_model)
+        h[:, 1:] = h[:, 1:] + t_embed
         h = self.out_layers[0](h)
-        t_embed = self.time_mlp(t).unsqueeze(1)  # (B, 1, d_model * 2)
-        scale = t_embed[..., :self.d_model]
-        shift = t_embed[..., self.d_model:]
-        h = (1 + scale) * h + shift
         h = self.out_layers[1](h)
         h = self.out_layers[2](h, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask)
         src = self.skip_conn(src) + h

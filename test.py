@@ -14,13 +14,13 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--video', action='store_true')
     args = parser.parse_args()
 
-    device = torch.device('cpu')
-    dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/train")
+    device = torch.device(0)
+    dataset = NuScenesDataset("/projects/perception/personals/yefanlin/data/nuSceneProcessed/test")
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
     preprocessor = DiffusionModelPreprocessor(device).test()
     B = 1
     model = DiffusionBasedModel(time_steps=1000)
-    model.load_state_dict(torch.load('./ckpts/10-27-21:12:34/final'))
+    model.load_state_dict(torch.load('./ckpts/10-28-12:16:29/model-9'))
     model.to(device)
     model.eval()
 
@@ -28,8 +28,6 @@ if __name__ == '__main__':
     name2color = {'pedestrian': 'red', 'bicyclist': 'blue', 'vehicle': 'green'}
 
     for idx, batch in enumerate(dataloader):
-        if idx == 0:
-            continue
         batch = preprocessor(batch)
         maps = batch['map']
         lengths = [batch['pedestrian']['length'].item(), batch['bicyclist']['length'].item(), batch['vehicle']['length'].item()]
@@ -83,7 +81,7 @@ if __name__ == '__main__':
             for name in ['pedestrian', 'bicyclist', 'vehicle']:
                 color = name2color[name]
                 for i in range(pred[name]['length']):
-                    loc = pred[name]['location'][-1][0, i].cpu().numpy() * axes_limit
+                    loc = pred[name]['location'][600][0, i].cpu().numpy() * axes_limit
                     ax.plot(loc[0], loc[1], 'x', color=color)
                     ax.annotate(str(i), loc)
             ax.set_xlim(-1.5 * axes_limit, 1.5 * axes_limit)

@@ -8,6 +8,7 @@ from torch.optim.lr_scheduler import LambdaLR
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel
 from datasets import NuScenesDataset, DiffusionModelPreprocessor, collate_fn
 from networks import DiffusionBasedModel
 import numpy as np
@@ -20,12 +21,13 @@ def lr_func(warmup):
     return inner
 
 os.environ['MASTER_ADDR'] = 'localhost'
-os.environ['MASTER_PORT'] = '5678'
+os.environ['MASTER_PORT'] = '6789'
 n_gpus = torch.cuda.device_count()
 n_epochs = 20
-batch_size = 16
+batch_size = 12
 
 def main(rank, world_size):
+    print(f'process {rank} started')
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     if rank == 0:
         timestamp = time.strftime('%m-%d-%H:%M:%S')
@@ -35,9 +37,11 @@ def main(rank, world_size):
     dataset = NuScenesDataset('/projects/perception/datasets/nuScenesProcessed/train')
     sampler = DistributedSampler(dataset)
     dataloader = DataLoader(dataset, batch_size=batch_size // world_size, shuffle=False, sampler=sampler, collate_fn=collate_fn)
-    preprocessor = DiffusionModelPreprocessor(device).train()
+    preprocessor = DiffusionModelPreprocessor(device).test()
     model = DiffusionBasedModel(time_steps=1000)
     model = model.to(device)
+    model = DistributedDataParallel(model, device_ids=[rank], find_unused_parameters=True)
+    print(f'process {rank} training')
     optimizer = Adam(model.parameters(), lr=1e-3)
     scheduler = LambdaLR(optimizer, lr_func(8000))
 
@@ -48,8 +52,8 @@ def main(rank, world_size):
             batch = preprocessor(batch)
             loss_dict = model(batch)
             loss_dict['all'] = loss_dict['all'].mean()
-            print(iters, loss_dict['all'].item())
             if rank == 0:
+                print(iters, loss_dict['all'].item())
                 for name in ['pedestrian', 'bicyclist', 'vehicle']:
                     for entry in ['length', 'noise']:
                         loss_dict[name][entry] = loss_dict[name][entry].mean()

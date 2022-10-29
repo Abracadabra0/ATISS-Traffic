@@ -13,7 +13,7 @@ import cv2
 
 
 class ObjectNumberPredictor(nn.Module):
-    def __init__(self, dim_feature, dim_hidden=128, max=63):
+    def __init__(self, dim_feature, dim_hidden=128, max=127):
         super().__init__()
         self.model = nn.Sequential(
             nn.Linear(dim_feature, dim_hidden),
@@ -212,17 +212,23 @@ class DiffusionBasedModel(nn.Module):
         }
         perturbed = {}
         original = {k: v.clone() for k, v in pos.items()}
+        grads = []
         for t in tqdm(reversed(range(self.time_steps))):
             t_normed = torch.ones(B, dtype=torch.float, device=device) * t / self.time_steps
             grad = self.backbone(pos, original, fmap, t_normed, mask)
             grad = torch.cat(list(grad.values()), dim=1)
+            grads.append(grad.norm(dim=-1).mean().item())
             if t > 0:
                 for field in fields:
                     perturbed[field], _ = self.perturb(pos[field], t - 1, areas[field])
                 noise = torch.cat(list(pos.values()), dim=1) - x
-                x = x - step_size * grad + step_size / 2 * noise * 0
+                if t < 400:
+                    x = x - 0.1 * grad
+                    x = x + 0.1 * noise
+                else:
+                    x = x - grad + noise
             else:
-                x = x - step_size * grad
+                x = x - 0.2 * grad
             x = x.clamp(min=-1, max=1)
             pos = {
                 'pedestrian': x[:, :pred['pedestrian']['length']],
@@ -231,20 +237,23 @@ class DiffusionBasedModel(nn.Module):
             }
             for field in fields:
                 pred[field]['location'].append(pos[field])
+        from matplotlib import pyplot as plt
+        plt.plot(grads)
+        plt.ylim([0, 0.1])
+        plt.savefig('grad.png')
         return pred
 
     @torch.no_grad()
     def generate(self, maps, lengths=None):
         B = maps.size(0)
         assert B == 1
-        fmap = self.feature_extractor(maps)  # (B, 512, 320, 320)
+        fmap, avg = self.feature_extractor(maps)  # (B, 512, 320, 320)
         pred = {
             'pedestrian': {},
             'bicyclist': {},
             'vehicle': {}
         }
         # predict number of objects
-        avg = fmap.mean(dim=(2, 3))
         if lengths is None:
             pred['pedestrian']['length'] = self.n_pedestrian(avg).sample().item()
             pred['bicyclist']['length'] = self.n_bicyclist(avg).sample().item()

@@ -30,31 +30,31 @@ class Extractor(nn.Module):
         super().__init__()
         self.body = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(in_channels=input_channels, out_channels=128, kernel_size=5, padding=2),
+                nn.Conv2d(in_channels=input_channels, out_channels=128, kernel_size=5, padding=2, padding_mode='reflect'),
                 nn.BatchNorm2d(128),
                 nn.ReLU()
             ),
             nn.Sequential(
-                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1, padding_mode='reflect'),
                 nn.BatchNorm2d(128),
                 nn.ReLU(),
-                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1, padding_mode='reflect'),
                 nn.BatchNorm2d(128),
                 nn.ReLU()
             ),
             nn.Sequential(
-                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1, padding_mode='reflect'),
                 nn.BatchNorm2d(128),
                 nn.ReLU(),
-                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1, padding_mode='reflect'),
                 nn.BatchNorm2d(128),
                 nn.ReLU()
             ),
             nn.Sequential(
-                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1, padding_mode='reflect'),
                 nn.BatchNorm2d(128),
                 nn.ReLU(),
-                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
+                nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1, padding_mode='reflect'),
                 nn.BatchNorm2d(128),
                 nn.ReLU()
             ),
